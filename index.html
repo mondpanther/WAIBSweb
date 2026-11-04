@@ -68,7 +68,7 @@
     .concept p.body { line-height: 1.6; margin: 12px 0 0; font-size: 15.5px; }
 
     .net { display: block; width: 100%; height: 160px; }
-    .net .edge { stroke: url(#edgeGrad); stroke-width: 1; opacity: 0.35; }
+    .net .edge { stroke: url(#edgeGrad); stroke-width: 1; opacity: 0.45; }
     .net .pulse {
       stroke: var(--cyan); stroke-width: 1.6; fill: none;
       stroke-dasharray: 6 140; animation: flow 3.2s linear infinite;
@@ -213,7 +213,7 @@
       const svg = document.getElementById("net");
       const concept = document.getElementById("concept");
       const summary = document.querySelector("#gaiis summary");
-      const MIN_H = 110, MAX_H = 520, BOTTOM_PAD = 40;
+      const MIN_H = 100, MAX_H = 260, BOTTOM_PAD = 40;
 
       function fitHeight() {
         const top = concept.getBoundingClientRect().bottom + window.scrollY;
@@ -228,8 +228,8 @@
         svg.setAttribute("viewBox", "0 0 " + W + " " + H);
 
         // more hidden layers when tall, more nodes per layer when wide
-        const hidden = Math.max(2, Math.min(5, Math.round(H / 80)));
-        const width = Math.max(3, Math.min(9, Math.round(W / 85)));
+        const hidden = H > 200 ? 3 : 2;
+        const width = Math.max(3, Math.min(6, Math.round(W / 130)));
         const layers = [1];
         for (let i = 0; i < hidden; i++) layers.push(i % 2 ? width - 1 : width);
         layers.push(1);
@@ -242,7 +242,7 @@
         const pts = layers.map((n, i) => {
           const y = pad + (H - 2 * pad) * i / (layers.length - 1);
           return Array.from({ length: n }, (_, j) => {
-            const x = n === 1 ? W / 2 : W * (0.06 + 0.88 * j / (n - 1));
+            const x = n === 1 ? W / 2 : W * (0.18 + 0.64 * j / (n - 1));
             return [x, y];
           });
         });
@@ -259,7 +259,7 @@
         svg.appendChild(g);
 
         // animated signals travelling from Concept to GAIIS
-        const nPulses = Math.max(4, Math.min(10, Math.round(W / 90)));
+        const nPulses = Math.max(3, Math.min(6, Math.round(W / 140)));
         for (let s = 0; s < nPulses; s++) {
           const path = pts.map(layer => layer[Math.floor(Math.random() * layer.length)]);
           const el = document.createElementNS(NS, "polyline");
