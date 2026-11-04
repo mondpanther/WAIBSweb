@@ -52,7 +52,10 @@
   .row { display: flex; align-items: center; gap: 8px; padding: 4px 8px; cursor: pointer; font-size: 13px; }
   .row:hover { background: var(--hover); }
   .row .sw { width: 10px; height: 10px; border-radius: 50%; flex: none; }
-  .row .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row .nm { flex: 1; min-width: 0; line-height: 1.25; }
+  .row { align-items: flex-start; }
+  .row input, .row .sw { margin-top: 4px; }
+  .row .ct { margin-top: 2px; }
   .row .ct { color: var(--muted); font-size: 11.5px; font-variant-numeric: tabular-nums; }
   .row input { accent-color: var(--cyan); margin: 0; }
   #search { padding: 10px 16px 6px; border-bottom: 1px solid var(--border); }
@@ -106,6 +109,12 @@
   .tag { font-size: 11px; padding: 1px 7px; border-radius: 999px; border: 1px solid rgba(255,255,255,.15); color: var(--muted); }
   .tag.k { color: #001522; border: 0; font-weight: 600; }
 
+  #ttip { position: fixed; z-index: 11; pointer-events: none; display: none; max-width: 300px; padding: 8px 11px;
+    background: rgba(0, 20, 32, 0.97); border: 1px solid var(--border); border-radius: 8px; font-size: 12.5px; line-height: 1.4; }
+  #ttip b { display: block; font-weight: 600; margin-bottom: 2px; }
+  #ttip span { color: var(--muted); }
+  #sideGrip { position: absolute; top: 0; right: -6px; width: 12px; height: 100%; cursor: col-resize; }
+  #side { position: fixed; }
   #tip { position: fixed; pointer-events: none; z-index: 10; max-width: 320px; padding: 8px 11px; font-size: 13px;
     background: rgba(0, 20, 32, 0.95); border: 1px solid var(--border); border-radius: 8px; display: none; }
   #tip .t { font-weight: 600; }
@@ -184,6 +193,7 @@
     </div>
   </div>
   <div id="stats"><span id="statTxt">Loading…</span><div id="bar"><i></i></div></div>
+  <div id="sideGrip" title="Drag to resize"></div>
 </aside>
 
 <aside id="detail" class="panel">
@@ -196,6 +206,7 @@
 </aside>
 
 <div id="tip"></div>
+<div id="ttip"></div>
 <div id="help">Scroll to zoom · drag to pan · hover for details · click a point or firm to see its links</div>
 <div id="err"></div>
 
@@ -519,12 +530,15 @@ function buildFilters() {
       const row = document.createElement("label");
       row.className = "row"; row.dataset.id = it.id; row.dataset.search = (it.name + " " + (it.alt || "")).toLowerCase();
       row.innerHTML = `<input type="checkbox" checked>${swatch ? `<span class="sw" style="background:${swatch(it)}"></span>` : ""}`
-        + `<span class="nm" title="${esc(it.title || it.name)}">${esc(it.name)}</span><span class="ct">${fmtShort(it.n)}</span>`;
+        + `<span class="nm">${esc(it.name)}</span><span class="ct">${fmtShort(it.n)}</span>`;
+      if (it.tip) row.dataset.tip = it.tip;
       row.querySelector("input").addEventListener("change", () => { readChecks(key); });
       box.appendChild(row);
     }
   };
-  mk($("themeList"), meta.themes.broad.map((t, i) => ({ id: String(i), name: t.name, n: t.n, title: t.name + " — " + t.kw.join(", ") })),
+  mk($("themeList"), meta.themes.broad.map((t, i) => ({ id: String(i), name: t.name, n: t.n,
+       tip: `<b>${esc(t.name)}</b>${fmt(t.n)} innovations<br><span>Keywords: ${esc(t.kw.join(", "))}</span>`
+            + `<br><span>Sub-themes: ${esc(meta.themes.fine.filter(f => f.broad === i).map(f => f.name).slice(0, 8).join(" · "))}…</span>` })),
      "theme", it => PALETTE[+it.id % PALETTE.length]);
   mk($("countryList"), [...meta.countries].sort((a, b) => a.name.localeCompare(b.name))
        .map(c => ({ id: c.code, name: c.name, alt: c.code, n: c.n })), "country", () => "transparent");
@@ -558,6 +572,22 @@ function buildFilters() {
   if (hasSole && meta.names_withheld) $("soleN").textContent = fmtShort(meta.names_withheld.n_firms) + " firms";
   $("soleBox").addEventListener("change", e => { sel.sole = e.target.checked; recomputeVisibility(); render(); writeHash();
     if (search.hl && search.mode === "i") setHighlight(search.hl, search.label); });
+  // tooltip with the full theme description
+  const tt = $("ttip");
+  $("filters").addEventListener("mouseover", e => {
+    const r = e.target.closest(".row[data-tip]"); if (!r) return;
+    tt.innerHTML = r.dataset.tip; tt.style.display = "block";
+    const b = r.getBoundingClientRect(), side = $("side").getBoundingClientRect();
+    tt.style.left = (side.right + 10) + "px"; tt.style.top = Math.min(b.top, innerHeight - tt.offsetHeight - 12) + "px";
+  });
+  $("filters").addEventListener("mouseout", e => { if (e.target.closest(".row[data-tip]")) tt.style.display = "none"; });
+  // draggable sidebar width
+  let drag = null;
+  $("sideGrip").addEventListener("pointerdown", e => { drag = e.clientX - $("side").offsetWidth; e.target.setPointerCapture(e.pointerId); });
+  $("sideGrip").addEventListener("pointermove", e => { if (drag == null) return;
+    $("side").style.width = Math.max(260, Math.min(innerWidth * 0.6, e.clientX - drag)) + "px"; });
+  $("sideGrip").addEventListener("pointerup", () => { drag = null; try { localStorage.setItem("gaiisia-side-w", $("side").style.width); } catch (_) {} });
+  try { const w = localStorage.getItem("gaiisia-side-w"); if (w && innerWidth >= 760) $("side").style.width = w; } catch (_) {}
   $("toggleSide").addEventListener("click", () => $("side").classList.toggle("collapsed"));
   if (innerWidth < 760) $("side").classList.add("collapsed");
 }
