@@ -739,19 +739,48 @@ function layers() {
   // theme labels: broad when zoomed out, fine when zoomed in
   const fineMode = zoom > z0 + 2.2;
   const themeOn = i => !sel.theme || sel.theme.has(String(i));
-  const lab = fineMode
+  const cand = fineMode
     ? meta.themes.fine.filter(t => themeOn(t.broad) && t.n > 0)
     : meta.themes.broad.filter((t, i) => themeOn(i) && t.n > 0);
+  const fontPx = fineMode ? 12 : 14;
+  const lab = placeLabels(cand, fontPx);
   L.push(new deck.TextLayer({
     id: "labels", data: lab, characterSet: "auto",
-    getPosition: d => [d.x * WORLD, WORLD - d.y * WORLD], getText: d => d.name,
-    getSize: fineMode ? 12 : 14, fontFamily: "Inter, sans-serif", fontWeight: 600,
+    getPosition: d => d.pos, getText: d => d.name,
+    getSize: fontPx, fontFamily: "Inter, sans-serif", fontWeight: 600,
     getColor: d => colorMode === "theme" ? [...themeRGB[fineMode ? d.broad : d.id], 235] : [225, 238, 242, 220],
     updateTriggers: { getColor: colorMode },
     outlineWidth: 3, outlineColor: [0, 18, 28, 255], fontSettings: { sdf: true },
     getTextAnchor: "middle", getAlignmentBaseline: "center", pickable: false
   }));
   return L;
+}
+// Greedy label placement in screen space: bigger themes first; a label that would overlap one already
+// placed is shifted below (then above) its anchor, and dropped if it still collides.
+let labelCtx = null;
+function placeLabels(items, fontPx) {
+  let vp = null;
+  try { vp = deckgl && deckgl.viewManager ? deckgl.getViewports()[0] : null; } catch (_) { vp = null; }
+  if (!vp) return items.map(d => ({ ...d, pos: [d.x * WORLD, WORLD - d.y * WORLD] }));
+  if (!labelCtx) { labelCtx = document.createElement("canvas").getContext("2d"); }
+  labelCtx.font = `600 ${fontPx}px Inter, sans-serif`;
+  const placed = [], out = [], pad = 4, lineH = fontPx * 1.3, scale = Math.pow(2, vp.zoom);
+  const sorted = [...items].sort((a, b) => b.n - a.n);
+  for (const d of sorted) {
+    const w = labelCtx.measureText(d.name).width + 2 * pad, h = lineH;
+    const [sx, sy] = vp.project([d.x * WORLD, WORLD - d.y * WORLD]);
+    let ok = false, dy = 0;
+    for (const off of [0, h, -h, 2 * h, -2 * h]) {
+      const x0 = sx - w / 2, y0 = sy + off - h / 2;
+      if (x0 < -w || y0 < -h || x0 > vp.width + w || y0 > vp.height + h) { ok = true; dy = off; break; }   // off-screen: no conflict
+      if (!placed.some(p => x0 < p.x1 && x0 + w > p.x0 && y0 < p.y1 && y0 + h > p.y0)) { ok = true; dy = off; break; }
+    }
+    if (!ok) continue;
+    const [px, py] = sx !== undefined ? vp.unproject([sx, sy + dy]) : [d.x * WORLD, WORLD - d.y * WORLD];
+    placed.push({ x0: sx - w / 2, x1: sx + w / 2, y0: sy + dy - h / 2, y1: sy + dy + h / 2 });
+    out.push({ ...d, pos: [px, py] });
+  }
+  return out;
 }
 function render() { if (deckgl && meta) deckgl.setProps({ layers: layers() }); }
 
@@ -1033,7 +1062,7 @@ deckgl = new deck.Deck({
   initialViewState: viewState, controller: { inertia: true, scrollZoom: { speed: 0.02, smooth: true } },
   layers: [], pickingRadius: 4,
   onViewStateChange: ({ viewState: v }) => {
-    const zChanged = Math.abs(v.zoom - viewState.zoom) > 0.05;
+    const zChanged = Math.abs(v.zoom - viewState.zoom) > 0.02;
     viewState = v; writeHash(); if (zChanged) render(); return v;
   },
   onHover,
