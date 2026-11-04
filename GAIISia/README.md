@@ -5,10 +5,13 @@ Survey (GAIIS). Each innovation (product or process) is placed by its `text-embe
 embedding; each firm sits at the mean of its innovations. Hovering shows the innovation and its
 firm; clicking a point or a firm draws the links between the firm and all its innovations.
 
-Filters: products / processes / firms, theme (20 broad themes from the embeddings), country,
-NACE section. Filters, view and the selected firm are kept in the URL, so a link restores the view.
+Search: innovations (all words must occur in the innovation's name or description; whole words,
+plural "s" ignored) or firms by name. Matches are highlighted and everything else fades.
+Colour by: theme, HQ region / country, product vs process, the paper's innovation score, green, labour effect.
+Filters: products / processes / firms, theme (20 broad themes from the embeddings), country.
+Filters, colouring, search, view and the selected firm are kept in the URL, so a link restores the view.
 
-Only two pieces of BvD/Orbis information are used: firm names and NACE codes.
+Only BvD/Orbis firm names are published (sole traders' names withheld); NACE codes are not.
 
 ## Files
 
@@ -40,6 +43,9 @@ The full data set (~215 MB) lives outside this repo, in a Hugging Face dataset; 
 - `meta.json` — counts, chunk table, countries, NACE 2-digit codes, theme names/keywords/centroids.
 - `c{k}_pts.bin` — per point: x, y (uint16, normalised to the map square) · sub-theme (uint8) · type (uint8, 0 product / 1 process).
 - `c{k}_firms.bin` — per firm: x, y (uint16) · number of innovations (uint16) · country, NACE-2, theme (uint8 indices into `meta.json`).
+- `c{k}_attr.bin` — green / labour effect per innovation; innovation scores, green share, net labour augmentation per firm.
+- `s/{k}.bin` — search index shards (word → innovations, FNV-1a hash of the word mod 512, delta-varint postings).
+- `names.json.gz` — firm names for the firm search.
 - `t/{b}.json.gz` — names of 500 consecutive firms and `[name, description, year]` of their innovations.
 
 Firms are shuffled, so each chunk is a random sample of firms and the map fills in evenly while loading;

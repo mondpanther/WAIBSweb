@@ -38,6 +38,7 @@
     width: 30px; height: 30px; cursor: pointer; flex: none; font-size: 14px; }
   #filters { overflow-y: auto; padding: 6px 0 10px; }
   #side.collapsed #filters { display: none; }
+  #side.collapsed #qRes { max-height: 140px; }
   .sec { padding: 8px 16px; }
   .sec-h { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 6px; }
   .sec-h b { font: 700 11px/1 Montserrat, sans-serif; letter-spacing: .14em; text-transform: uppercase; color: var(--cyan); }
@@ -54,6 +55,23 @@
   .row .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .row .ct { color: var(--muted); font-size: 11.5px; font-variant-numeric: tabular-nums; }
   .row input { accent-color: var(--cyan); margin: 0; }
+  #search { padding: 10px 16px 6px; border-bottom: 1px solid var(--border); }
+  #search[hidden] { display: none; }
+  .sbar { display: flex; gap: 6px; }
+  #q { flex: 1; background: rgba(0,0,0,.3); border: 1px solid var(--border); border-radius: 8px; color: var(--text);
+    padding: 8px 10px; font: inherit; font-size: 14px; }
+  #q:focus { outline: none; border-color: var(--cyan); }
+  #qClear { background: none; border: 1px solid var(--border); color: var(--muted); border-radius: 8px; width: 34px;
+    cursor: pointer; font-size: 17px; }
+  .smode { margin-top: 7px; }
+  .smode .chip { font-size: 12px; padding: 2px 10px; }
+  #qInfo { color: var(--muted); font-size: 12.5px; margin-top: 7px; }
+  #qInfo:empty { display: none; }
+  #qInfo b { color: var(--text); }
+  #qRes { max-height: 220px; overflow-y: auto; margin-top: 4px; }
+  #qRes .r { padding: 5px 6px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+  #qRes .r:hover, #qRes .r.on { background: var(--hover); }
+  #qRes .r small { display: block; color: var(--muted); font-size: 11.5px; }
   #colorLegend { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 8px; font-size: 12px; color: var(--muted); }
   #colorLegend:empty { display: none; }
   #colorLegend span { display: inline-flex; align-items: center; gap: 5px; }
@@ -116,6 +134,17 @@
     </div>
     <button id="toggleSide" title="Show/hide filters">☰</button>
   </header>
+  <div id="search">
+    <div class="sbar">
+      <input id="q" type="text" placeholder="Search innovations…" autocomplete="off" spellcheck="false" />
+      <button id="qClear" title="Clear search">×</button>
+    </div>
+    <div class="chips smode" id="qMode">
+      <span class="chip on" data-m="i">Innovations</span><span class="chip" data-m="f">Firms</span>
+    </div>
+    <div id="qInfo"></div>
+    <div id="qRes"></div>
+  </div>
   <div id="filters">
     <div class="sec">
       <div class="sec-h"><b>Show</b></div>
@@ -227,6 +256,10 @@ let broadOfFine, sectionOfNace;
 const sel = { prod: true, proc: true, firms: true, theme: null, country: null, nace: null };  // null = all
 let selected = null;   // {firm, item}
 let colorMode = "theme";
+// search: hl = sorted Uint32Array of highlighted point indices (null = no highlight)
+const search = { mode: "i", q: "", hl: null, label: "", seq: 0 };
+const shardCache = new Map();
+let firmNames = null, firmNamesLower = null;
 let regionRGB, regionOfCountry, countryRGB;
 let hoverFirm = -1;
 const textCache = new Map();
@@ -244,7 +277,7 @@ function readHash() {
   return {
     view: v.length === 3 && v.every(Number.isFinite) ? { target: [v[0], v[1], 0], zoom: v[2] } : null,
     show: h.get("show"), color: h.get("col"), theme: set("th"), country: set("c"), nace: set("n"),
-    firm: h.has("f") ? +h.get("f") : null
+    firm: h.has("f") ? +h.get("f") : null, q: h.get("q"), qm: h.get("qm")
   };
 }
 let hashTimer;
@@ -260,6 +293,7 @@ function writeHash() {
     if (sel.country) h.set("c", [...sel.country].join(","));
     if (sel.nace) h.set("n", [...sel.nace].join(","));
     if (selected) h.set("f", selected.firm);
+    if (search.q.trim() && search.hl) { h.set("q", search.q.trim()); if (search.mode === "f") h.set("qm", "f"); }
     history.replaceState(null, "", "#" + h.toString().replace(/%2C/g, ","));
   }, 250);
 }
@@ -397,7 +431,7 @@ function setupColours() {
 }
 function recolour() {
   if (colorMode === "country") computeCountryColours();
-  paint(0, loadedPts); paintFirms(0, loadedFirms);
+  paint(0, loadedPts); paintFirms(0, loadedFirms); hlDirty = true;
   for (const c of $("colorChips").children) c.classList.toggle("on", c.dataset.c === colorMode);
   // swatches in the lists + legend
   $("themeList").querySelectorAll(".sw").forEach(s => s.classList.toggle("off", colorMode !== "theme"));
@@ -457,6 +491,17 @@ async function load() {
   }
   await Promise.all(pumps);
   $("bar").style.display = "none";
+  if (!meta.search) $("search").hidden = true;
+  else if (pendingSearch) {
+    const ps = pendingSearch; pendingSearch = null;
+    if (ps.mode === "f") {   // restore a firm highlight
+      search.mode = "f"; for (const x of $("qMode").children) x.classList.toggle("on", x.dataset.m === "f");
+      $("q").value = search.q = ps.q;
+      if (selected) { const f = selected.firm, r = new Uint32Array(fcount[f]); for (let k = 0; k < r.length; k++) r[k] = fstart[f] + k;
+        setHighlight(r, ps.q, true); }
+      runFirmSearch(ps.q).then(() => { if (selected) setHighlight(search.hl, ps.q, true); });
+    } else { $("q").value = search.q = ps.q; runInnovationSearch(ps.q); }
+  }
   if (meta.preview) $("statTxt").insertAdjacentHTML("afterend",
     `<div style="margin-top:6px;color:#ffd166">${esc(meta.preview)}</div>`);
   if (pendingFirm != null) restoreSelection();
@@ -540,7 +585,7 @@ function recomputeVisibility() {
     const v = tOk[typ[i]] & firmOk[firmOf[i]] & themeOk[broadOfFine[fine[i]]];
     vis[i] = v; vp += v;
   }
-  nVisPts = vp; nVisFirms = vf;
+  nVisPts = vp; nVisFirms = vf; hlDirty = true;
   vis = vis.slice(); fvis = fvis.slice();     // new identity -> deck re-uploads the attribute
   $("statTxt").innerHTML = `<b>${fmt(vp)}</b> innovations · <b>${fmt(vf)}</b> firms shown`
     + (loadedPts < N ? ` · loading ${Math.round(100 * loadedPts / N)}%` : ` of ${fmt(N)} / ${fmt(NF)}`);
@@ -566,14 +611,14 @@ function initialView() {
   const m = Math.min(innerWidth, innerHeight);
   return { target: [WORLD / 2, WORLD / 2, 0], zoom: Math.log2(m / WORLD) - 0.05, minZoom: -2, maxZoom: 14 };
 }
-let pendingFirm = null;
+let pendingFirm = null, pendingSearch = null;
 function applyHash() {
   const h = readHash();
   viewState = Object.assign(initialView(), h.view || {});
   if (h.show) { const s = h.show.split("."); sel.prod = s.includes("prod"); sel.proc = s.includes("proc"); sel.firms = s.includes("firms"); }
   sel.theme = h.theme; sel.country = h.country; sel.nace = h.nace;
   if (["theme", "region", "country", "type"].includes(h.color) || (meta.attrs && ["score", "green", "labor"].includes(h.color))) colorMode = h.color;
-  pendingFirm = h.firm;
+  pendingFirm = h.firm; pendingSearch = h.q ? { q: h.q, mode: h.qm === "f" ? "f" : "i" } : null;
   syncChecks();
 }
 function restoreSelection() {
@@ -587,9 +632,15 @@ function layers() {
   L.push(new deck.ScatterplotLayer({
     id: "pts",
     data: { length: loadedPts, attributes: {
-      getPosition: { value: pos, size: 2 }, getFillColor: { value: col, size: 4, normalized: true },
+      getPosition: { value: pos, size: 2 }, getFillColor: { value: search.hl ? fadedColours() : col, size: 4, normalized: true },
       getFilterValue: { value: vis, size: 1 } } },
     radiusUnits: "pixels", getRadius: ptRadius, stroked: false, pickable: true,
+    extensions: [new deck.DataFilterExtension({ filterSize: 1 })], filterRange: [0.5, 1.5],
+    updateTriggers: { getRadius: ptRadius }
+  }));
+  if (search.hl) L.push(new deck.ScatterplotLayer({
+    id: "hl", data: hlLayerData(), radiusUnits: "pixels", getRadius: Math.max(3, ptRadius * 1.6), stroked: true,
+    getLineColor: [255, 255, 255, 160], lineWidthUnits: "pixels", getLineWidth: 0.6, pickable: true,
     extensions: [new deck.DataFilterExtension({ filterSize: 1 })], filterRange: [0.5, 1.5],
     updateTriggers: { getRadius: ptRadius }
   }));
@@ -600,7 +651,7 @@ function layers() {
     radiusUnits: "pixels", getRadius: Math.min(4, ptRadius * 1.4 + 0.5),
     filled: true, stroked: true, getLineColor: [255, 255, 255, 80],
     getFillColor: [255, 255, 255, 55],
-    lineWidthUnits: "pixels", getLineWidth: 0.6, pickable: true, visible: zoom > z0 + 1.2,
+    lineWidthUnits: "pixels", getLineWidth: 0.6, pickable: true, visible: zoom > z0 + 1.2, opacity: search.hl ? 0.15 : 1,
     extensions: [new deck.DataFilterExtension({ filterSize: 1 })], filterRange: [0.5, 1.5],
     updateTriggers: { getRadius: ptRadius }
   }));
@@ -654,7 +705,8 @@ function onHover(info) {
   else {
     const token = ++tipToken;
     let firm, item = null;
-    if (layer.id === "pts") { item = index; firm = firmOf[index]; }
+    if (layer.id === "hl") { const i = hlIndex(index); if (i < 0) return; item = i; firm = firmOf[i]; }
+    else if (layer.id === "pts") { item = index; firm = firmOf[index]; }
     else if (layer.id === "firms") { firm = index; newHover = index; }
     else if (layer.id === "marks") { const d = info.object; if (d.firm) return; item = d.i; firm = firmOf[d.i]; }
     else return;
@@ -677,9 +729,15 @@ function onHover(info) {
 function onClick(info) {
   const { layer, index } = info;
   if (!layer || index < 0) { clearSelection(); return; }
-  if (layer.id === "pts") selectFirm(firmOf[index], index);
+  if (layer.id === "hl") { const i = hlIndex(index); if (i >= 0) selectFirm(firmOf[i], i); }
+  else if (layer.id === "pts") selectFirm(firmOf[index], index);
   else if (layer.id === "firms") selectFirm(index, null);
   else if (layer.id === "marks") { const d = info.object; if (!d.firm) selectFirm(firmOf[d.i], d.i); }
+}
+function hlIndex(k) {   // k-th drawn highlight point -> global point index
+  let n = 0; const a = search.hl;
+  for (let j = 0; j < a.length; j++) if (a[j] < loadedPts) { if (n === k) return a[j]; n++; }
+  return -1;
 }
 function clearSelection() { selected = null; $("detail").classList.remove("show"); render(); writeHash(); }
 
@@ -725,7 +783,169 @@ function flyTo(x, y) {
   deckgl.setProps({ initialViewState: viewState });
 }
 $("close").addEventListener("click", clearSelection);
-addEventListener("keydown", e => { if (e.key === "Escape") clearSelection(); });
+addEventListener("keydown", e => { if (e.key === "Escape") { if (selected) clearSelection(); else if (search.hl) clearSearch(); } });
+
+// ------------------------------------------------------------------ search
+// Tokenisation must match tokens() in build_atlas_data.py
+const SEARCH_STOP = new Set("an and or the of for to in on with by from at as is are be its our their into via using based new improved".split(" "));
+function tokens(text) {
+  const t = text.toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g, "");
+  const out = new Set();
+  for (let w of t.match(/[a-z0-9]+/g) || []) {
+    if (w.length < 2 || SEARCH_STOP.has(w)) continue;
+    if (w.length > 4 && w.endsWith("s") && !w.endsWith("ss")) w = w.slice(0, -1);
+    out.add(w);
+  }
+  return [...out];
+}
+function fnv1a(s) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+  return h >>> 0;
+}
+async function shard(k) {
+  if (!shardCache.has(k)) shardCache.set(k, getBin(`s/${k}.bin`).then(buf => {
+    const n = new DataView(buf).getUint32(0, true);
+    const header = JSON.parse(new TextDecoder().decode(new Uint8Array(buf, 4, n)));
+    const map = new Map(header.map(h => [h[0], h]));
+    return { map, data: new Uint8Array(buf, 4 + n) };
+  }).catch(e => { shardCache.delete(k); throw e; }));
+  return shardCache.get(k);
+}
+async function postings(word) {
+  const s = await shard(fnv1a(word) % meta.search.shards), h = s.map.get(word);
+  if (!h) return new Uint32Array(0);
+  const [, off, len, count] = h, out = new Uint32Array(count), d = s.data;
+  let p = off, end = off + len, v = 0, k = 0;
+  while (p < end && k < count) {
+    let x = 0, sh = 0, b;
+    do { b = d[p++]; x += (b & 0x7f) * Math.pow(2, sh); sh += 7; } while (b & 0x80);
+    v += x; out[k++] = v;
+  }
+  return out;
+}
+function intersect(a, b) {
+  const out = new Uint32Array(Math.min(a.length, b.length)); let i = 0, j = 0, k = 0;
+  while (i < a.length && j < b.length) { if (a[i] < b[j]) i++; else if (a[i] > b[j]) j++; else { out[k++] = a[i]; i++; j++; } }
+  return out.subarray(0, k);
+}
+async function runInnovationSearch(q) {
+  const seq = ++search.seq, words = tokens(q);
+  if (!words.length) return setHighlight(null);
+  $("qInfo").textContent = "Searching…";
+  let lists;
+  try { lists = await Promise.all(words.map(postings)); } catch (e) { $("qInfo").textContent = "Search failed: " + e.message; return; }
+  if (seq !== search.seq) return;
+  lists.sort((a, b) => a.length - b.length);
+  let res = lists[0];
+  for (let k = 1; k < lists.length && res.length; k++) res = intersect(res, lists[k]);
+  setHighlight(res, `“${q.trim()}”`);
+  showInnovationResults(res, seq);
+}
+async function showInnovationResults(res, seq) {
+  const box = $("qRes"); box.innerHTML = "";
+  const shown = [];
+  for (let k = 0; k < res.length && shown.length < 12; k++) if (res[k] < loadedPts && vis[res[k]]) shown.push(res[k]);
+  const rows = await Promise.all(shown.map(i => itemText(i).catch(() => null)));
+  if (seq !== search.seq) return;
+  rows.forEach((t, k) => {
+    if (!t) return;
+    const i = shown[k], el = document.createElement("div");
+    el.className = "r";
+    el.innerHTML = `${esc(t.item[0])}<small>${esc(t.firm)} · ${esc(meta.countries[fcountry[firmOf[i]]].name)}</small>`;
+    el.addEventListener("click", () => { box.querySelectorAll(".r").forEach(x => x.classList.remove("on")); el.classList.add("on");
+      selectFirm(firmOf[i], i, true); });
+    box.appendChild(el);
+  });
+}
+async function loadFirmNames() {
+  if (!firmNames) {
+    $("qInfo").textContent = "Loading firm names…";
+    firmNames = await getJSONgz("names.json.gz");
+    firmNamesLower = firmNames.map(n => n.toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g, ""));
+  }
+}
+async function runFirmSearch(q) {
+  const seq = ++search.seq;
+  const needle = q.trim().toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g, "");
+  if (needle.length < 2) { $("qRes").innerHTML = ""; $("qInfo").textContent = ""; return; }
+  try { await loadFirmNames(); } catch (e) { $("qInfo").textContent = "Could not load firm names."; return; }
+  if (seq !== search.seq) return;
+  const hits = [];
+  const nf = Math.min(firmNamesLower.length, loadedFirms);   // only firms already loaded on the map
+  for (let f = 0; f < nf; f++) if (firmNamesLower[f].includes(needle)) hits.push(f);
+  // exact / prefix matches first, then larger innovators
+  const rank = f => (firmNamesLower[f].startsWith(needle) ? 0 : 1);
+  hits.sort((a, b) => rank(a) - rank(b) || fcount[b] - fcount[a]);
+  $("qInfo").innerHTML = `<b>${fmt(hits.length)}</b> firms match · pick one to highlight it`;
+  const box = $("qRes"); box.innerHTML = "";
+  for (const f of hits.slice(0, 30)) {
+    const el = document.createElement("div"); el.className = "r";
+    el.innerHTML = `${esc(firmNames[f])}<small>${esc(meta.countries[fcountry[f]].name)} · ${fcount[f]} innovations</small>`;
+    el.addEventListener("click", () => {
+      box.querySelectorAll(".r").forEach(x => x.classList.remove("on")); el.classList.add("on");
+      const r = new Uint32Array(fcount[f]); for (let k = 0; k < r.length; k++) r[k] = fstart[f] + k;
+      setHighlight(r, firmNames[f], true); selectFirm(f, null, true);
+    });
+    box.appendChild(el);
+  }
+}
+function setHighlight(arr, label = "", keepList = false) {
+  search.hl = arr && arr.length ? arr : (arr ? new Uint32Array(0) : null);
+  search.label = label; hlDirty = true;
+  if (!arr) { $("qInfo").textContent = ""; if (!keepList) $("qRes").innerHTML = ""; }
+  else if (search.mode === "i") {
+    let nv = 0; for (let k = 0; k < arr.length; k++) if (arr[k] < loadedPts && vis[arr[k]]) nv++;
+    $("qInfo").innerHTML = `<b>${fmt(arr.length)}</b> innovations match ${esc(label)}`
+      + (nv !== arr.length ? ` · <b>${fmt(nv)}</b> with current filters` : "") + (arr.length ? " · highlighted on the map" : "");
+  }
+  render(); writeHash();
+}
+function clearSearch() { search.seq++; search.q = ""; $("q").value = ""; setHighlight(null); }
+let qTimer;
+$("q").addEventListener("input", e => {
+  search.q = e.target.value; clearTimeout(qTimer);
+  if (!search.q.trim()) return clearSearch();
+  qTimer = setTimeout(() => search.mode === "i" ? runInnovationSearch(search.q) : runFirmSearch(search.q),
+    search.mode === "i" ? 450 : 200);
+});
+$("q").addEventListener("keydown", e => {
+  if (e.key === "Enter") { clearTimeout(qTimer); search.mode === "i" ? runInnovationSearch(search.q) : runFirmSearch(search.q); }
+  if (e.key === "Escape") { clearSearch(); e.stopPropagation(); }
+});
+$("qClear").addEventListener("click", clearSearch);
+$("qMode").addEventListener("click", e => {
+  const c = e.target.closest(".chip"); if (!c || c.dataset.m === search.mode) return;
+  search.mode = c.dataset.m;
+  for (const x of $("qMode").children) x.classList.toggle("on", x.dataset.m === search.mode);
+  $("q").placeholder = search.mode === "i" ? "Search innovations…" : "Search firms by name…";
+  const q = $("q").value; clearSearch(); $("q").value = q; search.q = q;
+  if (q.trim()) search.mode === "i" ? runInnovationSearch(q) : runFirmSearch(q);
+  $("q").focus();
+});
+
+// highlighted subset as its own layer (base layer is faded while a highlight is active)
+let hlDirty = true, hlData = null, colFaded = null;
+function fadedColours() {   // same colours, nearly transparent: the background while a search highlight is active
+  if (!hlDirty && colFaded) return colFaded;
+  if (!colFaded) colFaded = new Uint8Array(col.length);
+  colFaded.set(col);
+  for (let k = 3; k < colFaded.length; k += 4) colFaded[k] = 12;
+  return colFaded;
+}
+function hlLayerData() {
+  if (!hlDirty && hlData) return hlData;
+  const a = search.hl, n = a.length;
+  const p = new Float32Array(n * 2), c = new Uint8Array(n * 4), fv = new Float32Array(n); let k = 0;
+  for (let j = 0; j < n; j++) {
+    const i = a[j]; if (i >= loadedPts) continue;
+    p[2*k] = pos[2*i]; p[2*k+1] = pos[2*i+1];
+    c[4*k] = col[4*i]; c[4*k+1] = col[4*i+1]; c[4*k+2] = col[4*i+2]; c[4*k+3] = 235; fv[k] = vis[i]; k++;
+  }
+  hlDirty = false;
+  return hlData = { length: k, attributes: { getPosition: { value: p, size: 2 }, getFillColor: { value: c, size: 4, normalized: true },
+    getFilterValue: { value: fv, size: 1 } } };
+}
 
 // ------------------------------------------------------------------ helpers
 function esc(s) { return String(s ?? "").replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c])); }
@@ -751,10 +971,11 @@ $("map").addEventListener("click", e => {
   if (!downXY || Math.hypot(e.clientX - downXY[0], e.clientY - downXY[1]) > 5) return;
   const r = $("map").getBoundingClientRect();
   const info = deckgl.pickObject({ x: e.clientX - r.left, y: e.clientY - r.top, radius: 4,
-    layerIds: ["marks", "firms", "pts"] }) || { layer: null, index: -1 };
+    layerIds: ["marks", "hl", "firms", "pts"] }) || { layer: null, index: -1 };
   onClick(info);
 });
 document.fonts.ready.then(render);
+window.GAIISia = { get deck() { return deckgl; }, search };
 load();
 })();
 </script>
