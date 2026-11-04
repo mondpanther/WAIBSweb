@@ -75,6 +75,9 @@
   #qRes .r { padding: 5px 6px; border-radius: 6px; cursor: pointer; font-size: 13px; }
   #qRes .r:hover, #qRes .r.on { background: var(--hover); }
   #qRes .r small { display: block; color: var(--muted); font-size: 11.5px; }
+  .slider { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 12.5px; color: var(--muted); }
+  .slider input { flex: 1; accent-color: var(--cyan); min-width: 0; }
+  .slider span { width: 34px; text-align: right; font-variant-numeric: tabular-nums; }
   #colorLegend { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 8px; font-size: 12px; color: var(--muted); }
   #colorLegend:empty { display: none; }
   #colorLegend span { display: inline-flex; align-items: center; gap: 5px; }
@@ -99,6 +102,12 @@
     background: rgba(0, 24, 38, 0.97); border-radius: 12px 12px 0 0; }
   #detail .hd h2 { font: 700 16px/1.3 Montserrat, sans-serif; margin: 0 26px 4px 0; }
   #detail .meta { color: var(--muted); font-size: 12.5px; }
+  .ftiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 10px; }
+  .ftiles:empty { display: none; }
+  .ftile { border-top: 2px solid var(--border); padding-top: 5px; }
+  .ftile b { display: block; font: 700 16px/1.1 Montserrat, sans-serif; color: #fff; }
+  .ftile small { color: var(--muted); font-size: 11px; line-height: 1.2; display: block; margin-top: 2px; }
+  .ftile.pos b { color: #ffb347; } .ftile.neg b { color: #6aa5ff; } .ftile.na b { color: var(--muted); font-weight: 500; }
   #close { position: absolute; top: 12px; right: 12px; background: none; border: 0; color: var(--muted);
     font-size: 20px; cursor: pointer; line-height: 1; }
   .inno { padding: 10px 16px; border-bottom: 1px solid rgba(47,224,224,.1); cursor: pointer; }
@@ -162,6 +171,8 @@
         <span class="chip on" data-k="proc">Processes</span>
         <span class="chip on" data-k="firms">Firms</span>
       </div>
+      <div class="slider"><label for="alpha">Point opacity</label>
+        <input type="range" id="alpha" min="2" max="100" value="60"><span id="alphaV">60%</span></div>
       <label class="row" id="soleRow" style="padding:6px 0 0"><input type="checkbox" id="soleBox">
         <span class="nm">Include sole traders <span class="ct" id="soleN"></span></span></label>
     </div>
@@ -201,6 +212,7 @@
     <button id="close" title="Close">×</button>
     <h2 id="dName"></h2>
     <div class="meta" id="dMeta"></div>
+    <div class="ftiles" id="dTiles"></div>
   </div>
   <div id="dList"></div>
 </aside>
@@ -269,6 +281,7 @@ let broadOfFine, sectionOfNace;
 const sel = { prod: true, proc: true, firms: true, sole: false, theme: null, country: null, nace: null };  // null = all
 let selected = null;   // {firm, item}
 let colorMode = "theme";
+let alpha = 0.6;            // point opacity (slider)
 // search: hl = sorted Uint32Array of highlighted point indices (null = no highlight)
 const search = { mode: "i", q: "", hl: null, label: "", seq: 0 };
 const shardCache = new Map();
@@ -289,7 +302,7 @@ function readHash() {
   const v = (h.get("v") || "").split(",").map(Number);
   return {
     view: v.length === 3 && v.every(Number.isFinite) ? { target: [v[0], v[1], 0], zoom: v[2] } : null,
-    show: h.get("show"), sole: h.get("st") === "1", color: h.get("col"), theme: set("th"), country: set("c"), nace: set("n"),
+    show: h.get("show"), sole: h.get("st") === "1", alpha: h.has("a") ? +h.get("a") / 100 : null, color: h.get("col"), theme: set("th"), country: set("c"), nace: set("n"),
     firm: h.has("f") ? +h.get("f") : null, q: h.get("q"), qm: h.get("qm")
   };
 }
@@ -302,6 +315,7 @@ function writeHash() {
     const show = ["prod","proc","firms"].filter(k => sel[k]).join(".");
     if (show !== "prod.proc.firms") h.set("show", show || "none");
     if (sel.sole) h.set("st", "1");
+    if (Math.abs(alpha - 0.6) > 0.005) h.set("a", Math.round(alpha * 100));
     if (colorMode !== "theme") h.set("col", colorMode);
     if (sel.theme) h.set("th", [...sel.theme].join(","));
     if (sel.country) h.set("c", [...sel.country].join(","));
@@ -418,7 +432,7 @@ function paintFirms(a, b) {
 function paint(a, b) {
   for (let i = a; i < b; i++) {
     const c = rgbOfPoint(i);
-    col[4*i] = c[0]; col[4*i+1] = c[1]; col[4*i+2] = c[2]; col[4*i+3] = 150;
+    col[4*i] = c[0]; col[4*i+1] = c[1]; col[4*i+2] = c[2]; col[4*i+3] = 255;
   }
 }
 // distinct colours for countries: the selected ones get the main palette, otherwise golden-angle hues
@@ -483,7 +497,7 @@ async function load() {
     try { DATA = "sample/"; meta = await (await fetch(DATA + "meta.json")).json(); }   // fall back to the bundled preview
     catch (e2) { return fail("Could not load the atlas data. " + e.message); }
   }
-  allocate(); setupColours(); buildFilters(); applyHash(); recolour(); deckgl.setProps({ initialViewState: viewState }); render();
+  allocate(); setupColours(); buildFilters(); applyHash(); $("alpha").value = Math.round(alpha * 100); $("alphaV").textContent = Math.round(alpha * 100) + "%"; recolour(); deckgl.setProps({ initialViewState: viewState }); render();
   const total = meta.chunks.length;
   // fetch chunks with limited parallelism, ingest in order
   const pending = meta.chunks.map((ch, k) => () => Promise.all([getBin(`c${k}_pts.bin`), getBin(`c${k}_firms.bin`),
@@ -588,6 +602,10 @@ function buildFilters() {
     $("side").style.width = Math.max(260, Math.min(innerWidth * 0.6, e.clientX - drag)) + "px"; });
   $("sideGrip").addEventListener("pointerup", () => { drag = null; try { localStorage.setItem("gaiisia-side-w", $("side").style.width); } catch (_) {} });
   try { const w = localStorage.getItem("gaiisia-side-w"); if (w && innerWidth >= 760) $("side").style.width = w; } catch (_) {}
+  const setAlpha = (a, write) => { alpha = Math.max(0.02, Math.min(1, a)); $("alpha").value = Math.round(alpha * 100);
+    $("alphaV").textContent = Math.round(alpha * 100) + "%"; render(); if (write) writeHash(); };
+  $("alpha").addEventListener("input", e => setAlpha(e.target.value / 100, true));
+  setAlpha(alpha, false);
   $("toggleSide").addEventListener("click", () => $("side").classList.toggle("collapsed"));
   if (innerWidth < 760) $("side").classList.add("collapsed");
 }
@@ -657,6 +675,7 @@ function applyHash() {
   viewState = Object.assign(initialView(), h.view || {});
   if (h.show) { const s = h.show.split("."); sel.prod = s.includes("prod"); sel.proc = s.includes("proc"); sel.firms = s.includes("firms"); }
   sel.theme = h.theme; sel.country = h.country; sel.nace = h.nace; sel.sole = h.sole;
+  if (h.alpha != null && Number.isFinite(h.alpha)) alpha = Math.max(0.02, Math.min(1, h.alpha));
   if (["theme", "region", "country", "type"].includes(h.color) || (meta.attrs && ["score", "green", "labor"].includes(h.color))) colorMode = h.color;
   pendingFirm = h.firm; pendingSearch = h.q ? { q: h.q, mode: h.qm === "f" ? "f" : "i" } : null;
   syncChecks();
@@ -675,6 +694,7 @@ function layers() {
       getPosition: { value: pos, size: 2 }, getFillColor: { value: search.hl ? fadedColours() : col, size: 4, normalized: true },
       getFilterValue: { value: vis, size: 1 } } },
     radiusUnits: "pixels", getRadius: ptRadius, stroked: false, pickable: true,
+    opacity: search.hl ? 1 : alpha,
     extensions: [new deck.DataFilterExtension({ filterSize: 1 })], filterRange: [0.5, 1.5],
     updateTriggers: { getRadius: ptRadius }
   }));
@@ -759,9 +779,10 @@ function onHover(info) {
         tip.innerHTML = `<div class="t">${esc(t.item[0])}</div><div class="m">${typ[item] ? "Process" : "Product"} · ${esc(th.name)}</div>`
           + `<div class="m">${esc(t.firm)} · ${esc(cname)}</div>`; }).catch(() => {});
     } else {
-      tip.innerHTML = `<div class="t">…</div><div class="m">${fcount[firm]} innovations · ${esc(cname)} ${sec}</div>`;
+      const fl = `${fcount[firm]} innovations · ${esc(cname)} ${sec}${scoreText(firm)}`;
+      tip.innerHTML = `<div class="t">…</div><div class="m">${fl}</div>`;
       firmText(firm).then(t => { if (token !== tipToken) return;
-        tip.innerHTML = `<div class="t">${esc(t.name)}</div><div class="m">${fcount[firm]} innovations · ${esc(cname)} ${sec}</div>`; }).catch(() => {});
+        tip.innerHTML = `<div class="t">${esc(t.name)}</div><div class="m">${fl}</div>`; }).catch(() => {});
     }
   }
   if (newHover !== hoverFirm) { hoverFirm = newHover; render(); }
@@ -773,6 +794,16 @@ function onClick(info) {
   else if (layer.id === "pts") selectFirm(firmOf[index], index);
   else if (layer.id === "firms") selectFirm(index, null);
   else if (layer.id === "marks") { const d = info.object; if (!d.firm) selectFirm(firmOf[d.i], d.i); }
+}
+function scoreTile(v, label) {
+  if (v === -32768) return `<div class="ftile na"><b>n/a</b><small>${label}</small></div>`;
+  const z = v / 1000;
+  return `<div class="ftile ${z > 0.5 ? "pos" : z < -0.5 ? "neg" : ""}"><b>${(z >= 0 ? "+" : "") + z.toFixed(2)} SD</b><small>${label}</small></div>`;
+}
+function scoreText(f) {
+  if (!meta.attrs) return "";
+  const z = v => v === -32768 ? "n/a" : (v / 1000 >= 0 ? "+" : "") + (v / 1000).toFixed(2);
+  return ` · score prod ${z(fsp[f])} / proc ${z(fsc[f])}`;
 }
 function hlIndex(k) {   // k-th drawn highlight point -> global point index
   let n = 0; const a = search.hl;
@@ -787,10 +818,14 @@ async function selectFirm(f, item, fly = false) {
   const d = $("detail"); d.classList.add("show");
   const c = meta.countries[fcountry[f]], n2 = meta.nace2[fnace[f]];
   $("dName").textContent = "…";
-  const zs = v => v === -32768 ? "n/a" : (v / 1000 >= 0 ? "+" : "") + (v / 1000).toFixed(2);
-  const extra = meta.attrs ? ` · innovation score: product ${zs(fsp[f])}, process ${zs(fsc[f])} SD`
-    + (fgreen[f] !== 255 ? ` · ${Math.round(fgreen[f] / 2)}% green` : "")
-    + (fnet[f] !== -128 ? ` · net labour augmentation ${(fnet[f] / 100).toFixed(2)}` : "") : "";
+  const extra = "";
+  $("dTiles").innerHTML = !meta.attrs ? "" : [
+    scoreTile(fsp[f], "product innovation score"), scoreTile(fsc[f], "process innovation score"),
+    fgreen[f] === 255 ? `<div class="ftile na"><b>n/a</b><small>green innovations</small></div>`
+      : `<div class="ftile"><b>${Math.round(fgreen[f] / 2)}%</b><small>green innovations</small></div>`,
+    fnet[f] === -128 ? `<div class="ftile na"><b>n/a</b><small>net labour augmentation</small></div>`
+      : `<div class="ftile ${fnet[f] < 0 ? "neg" : ""}"><b>${(fnet[f] > 0 ? "+" : "") + (fnet[f] / 100).toFixed(2)}</b><small>net labour augmentation</small></div>`
+  ].join("");
   $("dMeta").textContent = meta.has_nace === false ? `${c.name} · ${fcount[f]} innovations${extra}`
     : `${c.name} · NACE ${n2.section} ${n2.code} (${NACE_SECTIONS[n2.section] || ""}) · ${fcount[f]} innovations`;
   $("dList").innerHTML = "";
