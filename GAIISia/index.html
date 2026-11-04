@@ -59,6 +59,9 @@
   #colorLegend span { display: inline-flex; align-items: center; gap: 5px; }
   #colorLegend i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
   #colorLegend .note { flex-basis: 100%; color: #ffd166; }
+  #colorLegend .txt { flex-basis: 100%; }
+  #colorLegend .ramp { flex-basis: 100%; height: 8px; border-radius: 4px; }
+  #colorLegend .ends { flex-basis: 100%; display: flex; justify-content: space-between; margin-top: -2px; }
   .list .sw.off { visibility: hidden; }
   .search { width: 100%; margin-bottom: 6px; background: rgba(0,0,0,.25); border: 1px solid var(--border);
     border-radius: 8px; color: var(--text); padding: 6px 9px; font: inherit; font-size: 13px; }
@@ -129,6 +132,9 @@
         <span class="chip" data-c="region">HQ region</span>
         <span class="chip" data-c="country">HQ country</span>
         <span class="chip" data-c="type">Product / process</span>
+        <span class="chip" data-c="score" data-attr="1">Innovation score</span>
+        <span class="chip" data-c="green" data-attr="1">Green</span>
+        <span class="chip" data-c="labor" data-attr="1">Labour effect</span>
       </div>
       <div id="colorLegend"></div>
     </div>
@@ -196,12 +202,27 @@ const REGIONS = [
 ];
 const OTHER_REGION = ["Other", "#8fb3bd"];
 const TYPE_COLORS = [["Product", "#ffb703"], ["Process", "#4cc9f0"]];
+const NA_RGB = [70, 92, 102];
+const SCORE_STOPS = [[-2, [58, 120, 230]], [0, [118, 138, 148]], [2, [255, 160, 60]], [4, [255, 230, 120]]];
+const GREEN_COLORS = [["Not green", "#51707c"], ["Green", "#3ddc84"]];
+const LABOR_COLORS = [["Labour-saving", "#ff6b5b"], ["Unclear", "#7d939c"], ["Labour-augmenting", "#4cc9f0"]];
+function ramp(stops, x) {
+  if (x <= stops[0][0]) return stops[0][1];
+  for (let k = 1; k < stops.length; k++) if (x <= stops[k][0]) {
+    const [x0, c0] = stops[k-1], [x1, c1] = stops[k], t = (x - x0) / (x1 - x0);
+    return c0.map((c, j) => Math.round(c + t * (c1[j] - c)));
+  }
+  return stops[stops.length - 1][1];
+}
+const SHARE_STOPS = [[0, [81, 112, 124]], [0.5, [140, 200, 150]], [1, [61, 220, 132]]];
+const NET_STOPS = [[-1, [255, 107, 91]], [0, [125, 147, 156]], [1, [76, 201, 240]]];
 const hex = h => [parseInt(h.slice(1,3),16), parseInt(h.slice(3,5),16), parseInt(h.slice(5,7),16)];
 
 // ------------------------------------------------------------------ state
 let meta, N = 0, NF = 0, loadedPts = 0, loadedFirms = 0;
 let pos, col, fine, typ, firmOf, vis;            // per point
 let fpos, fcount, fstart, fcountry, fnace, fbroad, fvis;   // per firm
+let pgreen, plabor, fsp, fsc, fgreen, fnet, fcol;           // attributes (optional file per chunk)
 let broadOfFine, sectionOfNace;
 const sel = { prod: true, proc: true, firms: true, theme: null, country: null, nace: null };  // null = all
 let selected = null;   // {firm, item}
@@ -267,10 +288,22 @@ function allocate() {
   firmOf = new Uint32Array(N); vis = new Float32Array(N);
   fpos = new Float32Array(NF * 2); fcount = new Uint16Array(NF); fstart = new Uint32Array(NF + 1);
   fcountry = new Uint8Array(NF); fnace = new Uint8Array(NF); fbroad = new Uint8Array(NF); fvis = new Float32Array(NF);
+  pgreen = new Uint8Array(N).fill(255); plabor = new Uint8Array(N).fill(255);
+  fsp = new Int16Array(NF).fill(-32768); fsc = new Int16Array(NF).fill(-32768);
+  fgreen = new Uint8Array(NF).fill(255); fnet = new Int8Array(NF).fill(-128); fcol = new Uint8Array(NF * 4).fill(255);
   broadOfFine = Uint8Array.from(meta.themes.fine.map(t => t.broad));
   sectionOfNace = meta.nace2.map(n => n.section);
 }
 
+function ingestAttr(ch, ab) {
+  if (!ab) return;
+  const np = ch.npts, nf = ch.nfirms, p0 = ch.pt0, f0 = ch.firm0;
+  pgreen.set(new Uint8Array(ab, 0, np), p0); plabor.set(new Uint8Array(ab, np, np), p0);
+  const o = 2 * np;
+  const sp = new Int16Array(ab.slice(o, o + 2 * nf)), sc = new Int16Array(ab.slice(o + 2 * nf, o + 4 * nf));
+  fsp.set(sp, f0); fsc.set(sc, f0);
+  fgreen.set(new Uint8Array(ab, o + 4 * nf, nf), f0); fnet.set(new Int8Array(ab, o + 5 * nf, nf), f0);
+}
 function ingest(ch, pb, fb) {
   const np = ch.npts, nf = ch.nfirms, p0 = ch.pt0, f0 = ch.firm0;
   const pxy = new Uint16Array(pb, 0, np * 2), pf = new Uint8Array(pb, np * 4, np), pt = new Uint8Array(pb, np * 5, np);
@@ -294,7 +327,7 @@ function ingest(ch, pb, fb) {
   }
   fstart[f0 + nf] = start;
   loadedPts = p0 + np; loadedFirms = f0 + nf;
-  paint(p0, p0 + np);
+  paint(p0, p0 + np); paintFirms(f0, f0 + nf);
 }
 
 let themeRGB;
@@ -303,10 +336,36 @@ function rgbOfPoint(i) {
     case "region": return regionRGB[regionOfCountry[fcountry[firmOf[i]]]];
     case "country": return countryRGB[fcountry[firmOf[i]]];
     case "type": return TYPE_RGB[typ[i]];
+    case "score": { const f = firmOf[i], s = typ[i] ? fsc[f] : fsp[f]; return s === -32768 ? NA_RGB : ramp(SCORE_STOPS, s / 1000); }
+    case "green": return pgreen[i] === 255 ? NA_RGB : GREEN_RGB[pgreen[i]];
+    case "labor": return plabor[i] === 255 ? NA_RGB : LABOR_RGB[plabor[i]];
     default: return themeRGB[broadOfFine[fine[i]]];
   }
 }
 const TYPE_RGB = TYPE_COLORS.map(t => hex(t[1]));
+const GREEN_RGB = GREEN_COLORS.map(t => hex(t[1])), LABOR_RGB = LABOR_COLORS.map(t => hex(t[1]));
+// firms: coloured by their own value in the attribute / location modes, white otherwise
+function firmScore(f) {
+  const a = fsp[f], b = fsc[f];
+  if (a === -32768 && b === -32768) return null;
+  return a === -32768 ? b / 1000 : b === -32768 ? a / 1000 : (a + b) / 2000;
+}
+function rgbOfFirm(f) {
+  switch (colorMode) {
+    case "region": return regionRGB[regionOfCountry[fcountry[f]]];
+    case "country": return countryRGB[fcountry[f]];
+    case "score": { const s = firmScore(f); return s == null ? NA_RGB : ramp(SCORE_STOPS, s); }
+    case "green": return fgreen[f] === 255 ? NA_RGB : ramp(SHARE_STOPS, fgreen[f] / 200);
+    case "labor": return fnet[f] === -128 ? NA_RGB : ramp(NET_STOPS, fnet[f] / 100);
+    default: return null;
+  }
+}
+function paintFirms(a, b) {
+  for (let f = a; f < b; f++) {
+    const c = rgbOfFirm(f) || [255, 255, 255];
+    fcol[4*f] = c[0]; fcol[4*f+1] = c[1]; fcol[4*f+2] = c[2]; fcol[4*f+3] = 255;
+  }
+}
 function paint(a, b) {
   for (let i = a; i < b; i++) {
     const c = rgbOfPoint(i);
@@ -338,7 +397,7 @@ function setupColours() {
 }
 function recolour() {
   if (colorMode === "country") computeCountryColours();
-  paint(0, loadedPts);
+  paint(0, loadedPts); paintFirms(0, loadedFirms);
   for (const c of $("colorChips").children) c.classList.toggle("on", c.dataset.c === colorMode);
   // swatches in the lists + legend
   $("themeList").querySelectorAll(".sw").forEach(s => s.classList.toggle("off", colorMode !== "theme"));
@@ -355,6 +414,17 @@ function recolour() {
     ? `<span class="note">Tip: tick a few countries below to give each a clearly distinct colour.</span>`
     : meta.countries.map((c, i) => [c, i]).filter(([c]) => sel.country.has(c.code))
         .sort((a, b) => a[0].name.localeCompare(b[0].name)).map(([c, i]) => item(c.name, `rgb(${countryRGB[i]})`)).join("");
+  else if (colorMode === "score") {
+    const css = SCORE_STOPS.slice(0, 3).map((s, k) => `rgb(${s[1]}) ${k * 50}%`).join(",");
+    lg.innerHTML = `<span class="txt">Innovation score of the firm (paper's cross-fitted TF-IDF score, z-standardised; `
+      + `product innovations use the product score, process innovations the process score)</span>`
+      + `<div class="ramp" style="background:linear-gradient(90deg,${css})"></div><div class="ends"><span>≤ −2 SD</span><span>0</span><span>≥ +2 SD</span></div>`
+      + `${item("no score", `rgb(${NA_RGB})`)}<span class="txt">Firms: average of their product and process scores.</span>`;
+  }
+  else if (colorMode === "green") lg.innerHTML = GREEN_COLORS.map(t => item(t[0], t[1])).join("")
+      + `<span class="txt">Firms: share of their innovations that are green.</span>`;
+  else if (colorMode === "labor") lg.innerHTML = LABOR_COLORS.map(t => item(t[0], t[1])).join("")
+      + `<span class="txt">Firms: net labour augmentation = share augmenting − share saving (−1 … +1).</span>`;
   else lg.innerHTML = "";
 }
 async function load() {
@@ -367,7 +437,8 @@ async function load() {
   allocate(); setupColours(); buildFilters(); applyHash(); recolour(); deckgl.setProps({ initialViewState: viewState }); render();
   const total = meta.chunks.length;
   // fetch chunks with limited parallelism, ingest in order
-  const pending = meta.chunks.map((ch, k) => () => Promise.all([getBin(`c${k}_pts.bin`), getBin(`c${k}_firms.bin`)]));
+  const pending = meta.chunks.map((ch, k) => () => Promise.all([getBin(`c${k}_pts.bin`), getBin(`c${k}_firms.bin`),
+    meta.attrs ? getBin(`c${k}_attr.bin`) : null]));
   const results = new Array(total); let next = 0, done = 0;
   const pumps = Array.from({ length: 3 }, async () => {
     while (next < total) {
@@ -377,6 +448,7 @@ async function load() {
   });
   for (let k = 0; k < total; k++) {
     while (!results[k]) await new Promise(r => setTimeout(r, 30));
+    ingestAttr(meta.chunks[k], results[k][2]);
     ingest(meta.chunks[k], results[k][0], results[k][1]);
     results[k] = 1; done++;
     $("bar").firstElementChild.style.width = (100 * done / total) + "%";
@@ -427,6 +499,7 @@ function buildFilters() {
     sel[c.dataset.k] = !sel[c.dataset.k]; c.classList.toggle("on", sel[c.dataset.k]);
     recomputeVisibility(); render(); writeHash();
   });
+  if (!meta.attrs) $("colorChips").querySelectorAll("[data-attr]").forEach(c => c.remove());
   $("colorChips").addEventListener("click", e => {
     const c = e.target.closest(".chip"); if (!c || c.dataset.c === colorMode) return;
     colorMode = c.dataset.c; recolour(); render(); writeHash();
@@ -499,7 +572,7 @@ function applyHash() {
   viewState = Object.assign(initialView(), h.view || {});
   if (h.show) { const s = h.show.split("."); sel.prod = s.includes("prod"); sel.proc = s.includes("proc"); sel.firms = s.includes("firms"); }
   sel.theme = h.theme; sel.country = h.country; sel.nace = h.nace;
-  if (["theme", "region", "country", "type"].includes(h.color)) colorMode = h.color;
+  if (["theme", "region", "country", "type"].includes(h.color) || (meta.attrs && ["score", "green", "labor"].includes(h.color))) colorMode = h.color;
   pendingFirm = h.firm;
   syncChecks();
 }
@@ -522,9 +595,11 @@ function layers() {
   }));
   if (sel.firms) L.push(new deck.ScatterplotLayer({
     id: "firms",
-    data: { length: loadedFirms, attributes: { getPosition: { value: fpos, size: 2 }, getFilterValue: { value: fvis, size: 1 } } },
-    radiusUnits: "pixels", getRadius: Math.min(5, ptRadius * 1.8 + 0.6),
-    filled: true, getFillColor: [255, 255, 255, 55], stroked: true, getLineColor: [255, 255, 255, 140],
+    data: { length: loadedFirms, attributes: { getPosition: { value: fpos, size: 2 }, getFilterValue: { value: fvis, size: 1 },
+      ...(colorMode === "theme" || colorMode === "type" ? {} : { getFillColor: { value: fcol, size: 4, normalized: true } }) } },
+    radiusUnits: "pixels", getRadius: Math.min(4, ptRadius * 1.4 + 0.5),
+    filled: true, stroked: true, getLineColor: [255, 255, 255, 80],
+    getFillColor: [255, 255, 255, 55],
     lineWidthUnits: "pixels", getLineWidth: 0.6, pickable: true, visible: zoom > z0 + 1.2,
     extensions: [new deck.DataFilterExtension({ filterSize: 1 })], filterRange: [0.5, 1.5],
     updateTriggers: { getRadius: ptRadius }
@@ -614,7 +689,11 @@ async function selectFirm(f, item, fly = false) {
   const d = $("detail"); d.classList.add("show");
   const c = meta.countries[fcountry[f]], n2 = meta.nace2[fnace[f]];
   $("dName").textContent = "…";
-  $("dMeta").textContent = meta.has_nace === false ? `${c.name} · ${fcount[f]} innovations`
+  const zs = v => v === -32768 ? "n/a" : (v / 1000 >= 0 ? "+" : "") + (v / 1000).toFixed(2);
+  const extra = meta.attrs ? ` · innovation score: product ${zs(fsp[f])}, process ${zs(fsc[f])} SD`
+    + (fgreen[f] !== 255 ? ` · ${Math.round(fgreen[f] / 2)}% green` : "")
+    + (fnet[f] !== -128 ? ` · net labour augmentation ${(fnet[f] / 100).toFixed(2)}` : "") : "";
+  $("dMeta").textContent = meta.has_nace === false ? `${c.name} · ${fcount[f]} innovations${extra}`
     : `${c.name} · NACE ${n2.section} ${n2.code} (${NACE_SECTIONS[n2.section] || ""}) · ${fcount[f]} innovations`;
   $("dList").innerHTML = "";
   let t;
@@ -628,7 +707,10 @@ async function selectFirm(f, item, fly = false) {
     el.className = "inno" + (i === item ? " sel" : ""); el.dataset.i = i;
     el.innerHTML = `<div class="t">${esc(it[0])}</div>${it[1] ? `<div class="d">${esc(it[1])}</div>` : ""}`
       + `<div class="tags"><span class="tag">${typ[i] ? "Process" : "Product"}</span>${it[2] ? `<span class="tag">${it[2]}</span>` : ""}`
-      + `<span class="tag k" style="background:rgb(${rgb})">${esc(th.name)}</span></div>`;
+      + `<span class="tag k" style="background:rgb(${rgb})">${esc(th.name)}</span>`
+      + (meta.attrs && pgreen[i] === 1 ? `<span class="tag" style="color:#3ddc84;border-color:#3ddc8466">green</span>` : "")
+      + (meta.attrs && plabor[i] !== 255 && plabor[i] !== 1 ? `<span class="tag" style="color:${LABOR_COLORS[plabor[i]][1]}">${LABOR_COLORS[plabor[i]][0].toLowerCase()}</span>` : "")
+      + `</div>`;
     el.addEventListener("click", () => {
       selected.item = i; box.querySelectorAll(".inno").forEach(x => x.classList.toggle("sel", +x.dataset.i === i)); render();
     });
