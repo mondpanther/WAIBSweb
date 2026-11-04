@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>GAIISia · GAIIS Innovation Atlas</title>
+<meta name="description" content="Map of ~5.9 million firm innovations from the Global AI Innovation Survey (GAIIS), positioned by their text embeddings." />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+<script src="https://unpkg.com/deck.gl@9.1.14/dist.min.js"></script>
+<style>
+  :root {
+    --bg: #001522;
+    --panel: rgba(0, 24, 38, 0.86);
+    --border: rgba(47, 224, 224, 0.28);
+    --cyan: #2fe0e0;
+    --text: #e6f4f7;
+    --muted: #8fb3bd;
+    --hover: rgba(47, 224, 224, 0.08);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--text);
+    font: 14px/1.45 Inter, system-ui, sans-serif; }
+  #map { position: fixed; inset: 0; background: radial-gradient(ellipse at 50% 40%, #012a3c 0%, #001522 70%); }
+  .panel { position: fixed; background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); box-shadow: 0 8px 30px rgba(0,0,0,.35); }
+  h1 { font: 800 17px/1.2 Montserrat, sans-serif; margin: 0; letter-spacing: .01em; }
+  h1 span { color: var(--cyan); }
+  .sub { color: var(--muted); font-size: 12.5px; margin-top: 3px; }
+  a { color: var(--cyan); }
+
+  /* left: title + filters */
+  #side { top: 12px; left: 12px; width: 300px; max-height: calc(100% - 24px); display: flex; flex-direction: column; }
+  #side header { padding: 14px 16px 12px; border-bottom: 1px solid var(--border); display: flex; gap: 10px; align-items: flex-start; }
+  #side header .grow { flex: 1; }
+  #toggleSide { background: none; border: 1px solid var(--border); color: var(--cyan); border-radius: 8px;
+    width: 30px; height: 30px; cursor: pointer; flex: none; font-size: 14px; }
+  #filters { overflow-y: auto; padding: 6px 0 10px; }
+  #side.collapsed #filters { display: none; }
+  .sec { padding: 8px 16px; }
+  .sec-h { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 6px; }
+  .sec-h b { font: 700 11px/1 Montserrat, sans-serif; letter-spacing: .14em; text-transform: uppercase; color: var(--cyan); }
+  .sec-h button { background: none; border: 0; color: var(--muted); font-size: 12px; cursor: pointer; padding: 0 0 0 8px; }
+  .sec-h button:hover { color: var(--text); }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { border: 1px solid var(--border); border-radius: 999px; padding: 4px 11px; cursor: pointer; font-size: 13px;
+    user-select: none; color: var(--muted); }
+  .chip.on { background: rgba(47,224,224,.14); color: var(--text); border-color: rgba(47,224,224,.6); }
+  .list { max-height: 210px; overflow-y: auto; border: 1px solid rgba(47,224,224,.12); border-radius: 8px; }
+  .row { display: flex; align-items: center; gap: 8px; padding: 4px 8px; cursor: pointer; font-size: 13px; }
+  .row:hover { background: var(--hover); }
+  .row .sw { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+  .row .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row .ct { color: var(--muted); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+  .row input { accent-color: var(--cyan); margin: 0; }
+  .search { width: 100%; margin-bottom: 6px; background: rgba(0,0,0,.25); border: 1px solid var(--border);
+    border-radius: 8px; color: var(--text); padding: 6px 9px; font: inherit; font-size: 13px; }
+  .search:focus { outline: none; border-color: var(--cyan); }
+  #stats { padding: 10px 16px; border-top: 1px solid var(--border); color: var(--muted); font-size: 12.5px; }
+  #stats b { color: var(--text); font-weight: 600; }
+  #bar { height: 3px; background: rgba(47,224,224,.15); border-radius: 2px; margin-top: 7px; overflow: hidden; }
+  #bar i { display: block; height: 100%; width: 0; background: var(--cyan); transition: width .3s; }
+
+  /* right: details */
+  #detail { top: 12px; right: 12px; width: 380px; max-height: calc(100% - 24px); overflow-y: auto; display: none; }
+  #detail.show { display: block; }
+  #detail .hd { padding: 14px 16px 12px; border-bottom: 1px solid var(--border); position: sticky; top: 0;
+    background: rgba(0, 24, 38, 0.97); border-radius: 12px 12px 0 0; }
+  #detail .hd h2 { font: 700 16px/1.3 Montserrat, sans-serif; margin: 0 26px 4px 0; }
+  #detail .meta { color: var(--muted); font-size: 12.5px; }
+  #close { position: absolute; top: 12px; right: 12px; background: none; border: 0; color: var(--muted);
+    font-size: 20px; cursor: pointer; line-height: 1; }
+  .inno { padding: 10px 16px; border-bottom: 1px solid rgba(47,224,224,.1); cursor: pointer; }
+  .inno:hover, .inno.sel { background: var(--hover); }
+  .inno .t { font-weight: 600; }
+  .inno .d { color: #c4dbe1; font-size: 13px; margin-top: 2px; }
+  .inno .tags { margin-top: 5px; display: flex; gap: 6px; flex-wrap: wrap; }
+  .tag { font-size: 11px; padding: 1px 7px; border-radius: 999px; border: 1px solid rgba(255,255,255,.15); color: var(--muted); }
+  .tag.k { color: #001522; border: 0; font-weight: 600; }
+
+  #tip { position: fixed; pointer-events: none; z-index: 10; max-width: 320px; padding: 8px 11px; font-size: 13px;
+    background: rgba(0, 20, 32, 0.95); border: 1px solid var(--border); border-radius: 8px; display: none; }
+  #tip .t { font-weight: 600; }
+  #tip .m { color: var(--muted); font-size: 12px; margin-top: 2px; }
+
+  #help { position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%); color: var(--muted); font-size: 12px;
+    padding: 6px 12px; background: rgba(0,20,32,.7); border-radius: 999px; border: 1px solid rgba(47,224,224,.15); white-space: nowrap; }
+  #err { position: fixed; inset: auto 16px 50px 16px; margin: auto; max-width: 560px; display: none; padding: 14px 16px;
+    background: #3a0d12; border: 1px solid #b3424d; border-radius: 10px; }
+
+  @media (max-width: 760px) {
+    #side { width: calc(100% - 24px); max-height: 46%; }
+    #detail { top: auto; bottom: 12px; width: calc(100% - 24px); max-height: 48%; }
+    #help { display: none; }
+  }
+</style>
+</head>
+<body>
+<div id="map"></div>
+
+<aside id="side" class="panel">
+  <header>
+    <div class="grow">
+      <h1>GAIIS<span>ia</span></h1>
+      <div class="sub">GAIIS innovation atlas: every innovation placed by the meaning of its description. <a href="../">WAIBS</a></div>
+    </div>
+    <button id="toggleSide" title="Show/hide filters">☰</button>
+  </header>
+  <div id="filters">
+    <div class="sec">
+      <div class="sec-h"><b>Show</b></div>
+      <div class="chips" id="showChips">
+        <span class="chip on" data-k="prod">Products</span>
+        <span class="chip on" data-k="proc">Processes</span>
+        <span class="chip on" data-k="firms">Firms</span>
+      </div>
+    </div>
+    <div class="sec">
+      <div class="sec-h"><b>Theme</b><span><button data-all="theme">all</button><button data-none="theme">none</button></span></div>
+      <div class="list" id="themeList"></div>
+    </div>
+    <div class="sec">
+      <div class="sec-h"><b>Country</b><span><button data-all="country">all</button><button data-none="country">none</button></span></div>
+      <input class="search" id="countrySearch" placeholder="Search countries…" />
+      <div class="list" id="countryList"></div>
+    </div>
+    <div class="sec">
+      <div class="sec-h"><b>Industry (NACE)</b><span><button data-all="nace">all</button><button data-none="nace">none</button></span></div>
+      <div class="list" id="naceList"></div>
+    </div>
+  </div>
+  <div id="stats"><span id="statTxt">Loading…</span><div id="bar"><i></i></div></div>
+</aside>
+
+<aside id="detail" class="panel">
+  <div class="hd">
+    <button id="close" title="Close">×</button>
+    <h2 id="dName"></h2>
+    <div class="meta" id="dMeta"></div>
+  </div>
+  <div id="dList"></div>
+</aside>
+
+<div id="tip"></div>
+<div id="help">Scroll to zoom · drag to pan · hover for details · click a point or firm to see its links</div>
+<div id="err"></div>
+
+<script>
+(() => {
+"use strict";
+// ------------------------------------------------------------------ config
+const qs = new URLSearchParams(location.search);
+// Where the atlas data lives. Switch DEFAULT_DATA to the Hugging Face dataset once uploaded, e.g.
+// "https://huggingface.co/datasets/<org>/gaiis-atlas/resolve/main/"; ?data=<url> overrides it.
+const DEFAULT_DATA = "https://huggingface.co/datasets/mondpanther/gaiis-atlas/resolve/main/";
+const DATA = (qs.get("data") || DEFAULT_DATA).replace(/\/?$/, "/");
+const WORLD = 1000;                       // coordinates are mapped to [0, WORLD]
+const NACE_SECTIONS = {
+  A:"Agriculture, forestry & fishing", B:"Mining & quarrying", C:"Manufacturing", D:"Electricity & gas",
+  E:"Water & waste", F:"Construction", G:"Wholesale & retail", H:"Transport & storage",
+  I:"Accommodation & food", J:"Information & communication", K:"Finance & insurance", L:"Real estate",
+  M:"Professional & scientific", N:"Administrative & support", O:"Public administration", P:"Education",
+  Q:"Health & social work", R:"Arts & recreation", S:"Other services", T:"Households", U:"Unclassified"
+};
+// 20 distinct colours that read well on a dark background
+const PALETTE = ["#4cc9f0","#f72585","#b5e48c","#ffb703","#9d4edd","#06d6a0","#ff7b54","#4895ef","#e9c46a","#ef476f",
+  "#80ffdb","#c77dff","#f4a261","#90be6d","#00b4d8","#ff9ebb","#ffd166","#43aa8b","#a0c4ff","#f94144",
+  "#caffbf","#bdb2ff","#fdffb6","#9bf6ff"];
+const hex = h => [parseInt(h.slice(1,3),16), parseInt(h.slice(3,5),16), parseInt(h.slice(5,7),16)];
+
+// ------------------------------------------------------------------ state
+let meta, N = 0, NF = 0, loadedPts = 0, loadedFirms = 0;
+let pos, col, fine, typ, firmOf, vis;            // per point
+let fpos, fcount, fstart, fcountry, fnace, fbroad, fvis;   // per firm
+let broadOfFine, sectionOfNace;
+const sel = { prod: true, proc: true, firms: true, theme: null, country: null, nace: null };  // null = all
+let selected = null;   // {firm, item}
+let hoverFirm = -1;
+const textCache = new Map();
+let deckgl, viewState;
+
+const $ = id => document.getElementById(id);
+const fmt = n => n.toLocaleString("en-GB");
+function fail(msg) { const e = $("err"); e.textContent = msg; e.style.display = "block"; }
+
+// ------------------------------------------------------------------ URL state
+function readHash() {
+  const h = new URLSearchParams(location.hash.slice(1));
+  const set = k => h.has(k) ? new Set(h.get(k).split(",").filter(Boolean)) : null;
+  const v = (h.get("v") || "").split(",").map(Number);
+  return {
+    view: v.length === 3 && v.every(Number.isFinite) ? { target: [v[0], v[1], 0], zoom: v[2] } : null,
+    show: h.get("show"), theme: set("th"), country: set("c"), nace: set("n"),
+    firm: h.has("f") ? +h.get("f") : null
+  };
+}
+let hashTimer;
+function writeHash() {
+  clearTimeout(hashTimer);
+  hashTimer = setTimeout(() => {
+    const h = new URLSearchParams();
+    if (viewState) h.set("v", [viewState.target[0].toFixed(1), viewState.target[1].toFixed(1), viewState.zoom.toFixed(2)].join(","));
+    const show = ["prod","proc","firms"].filter(k => sel[k]).join(".");
+    if (show !== "prod.proc.firms") h.set("show", show || "none");
+    if (sel.theme) h.set("th", [...sel.theme].join(","));
+    if (sel.country) h.set("c", [...sel.country].join(","));
+    if (sel.nace) h.set("n", [...sel.nace].join(","));
+    if (selected) h.set("f", selected.firm);
+    history.replaceState(null, "", "#" + h.toString().replace(/%2C/g, ","));
+  }, 250);
+}
+
+// ------------------------------------------------------------------ data loading
+async function getBin(path) {
+  const r = await fetch(DATA + path);
+  if (!r.ok) throw new Error(`${path}: HTTP ${r.status}`);
+  return r.arrayBuffer();
+}
+async function getJSONgz(path) {
+  const r = await fetch(DATA + path);
+  if (!r.ok) throw new Error(`${path}: HTTP ${r.status}`);
+  const buf = new Uint8Array(await r.arrayBuffer());
+  let text;
+  if (buf[0] === 0x1f && buf[1] === 0x8b) {        // gzip (server did not decode it)
+    const ds = new Blob([buf]).stream().pipeThrough(new DecompressionStream("gzip"));
+    text = await new Response(ds).text();
+  } else text = new TextDecoder().decode(buf);
+  return JSON.parse(text);
+}
+
+function allocate() {
+  N = meta.n_points; NF = meta.n_firms;
+  pos = new Float32Array(N * 2); col = new Uint8Array(N * 4); fine = new Uint8Array(N); typ = new Uint8Array(N);
+  firmOf = new Uint32Array(N); vis = new Float32Array(N);
+  fpos = new Float32Array(NF * 2); fcount = new Uint16Array(NF); fstart = new Uint32Array(NF + 1);
+  fcountry = new Uint8Array(NF); fnace = new Uint8Array(NF); fbroad = new Uint8Array(NF); fvis = new Float32Array(NF);
+  broadOfFine = Uint8Array.from(meta.themes.fine.map(t => t.broad));
+  sectionOfNace = meta.nace2.map(n => n.section);
+}
+
+function ingest(ch, pb, fb) {
+  const np = ch.npts, nf = ch.nfirms, p0 = ch.pt0, f0 = ch.firm0;
+  const pxy = new Uint16Array(pb, 0, np * 2), pf = new Uint8Array(pb, np * 4, np), pt = new Uint8Array(pb, np * 5, np);
+  const s = WORLD / 65535;
+  for (let i = 0; i < np; i++) {
+    const g = p0 + i;
+    pos[2*g] = pxy[2*i] * s; pos[2*g+1] = WORLD - pxy[2*i+1] * s;
+    fine[g] = pf[i]; typ[g] = pt[i];
+    const c = themeRGB[broadOfFine[pf[i]]];
+    col[4*g] = c[0]; col[4*g+1] = c[1]; col[4*g+2] = c[2]; col[4*g+3] = 150;
+  }
+  const fxy = new Uint16Array(fb, 0, nf * 2);
+  const fc = new Uint16Array(fb, nf * 4, nf);
+  const fco = new Uint8Array(fb, nf * 6, nf), fna = new Uint8Array(fb, nf * 7, nf), fbr = new Uint8Array(fb, nf * 8, nf);
+  let start = p0;
+  for (let j = 0; j < nf; j++) {
+    const g = f0 + j;
+    fpos[2*g] = fxy[2*j] * s; fpos[2*g+1] = WORLD - fxy[2*j+1] * s;
+    fcount[g] = fc[j]; fcountry[g] = fco[j]; fnace[g] = fna[j]; fbroad[g] = fbr[j];
+    fstart[g] = start;
+    for (let k = 0; k < fc[j]; k++) firmOf[start + k] = g;
+    start += fc[j];
+  }
+  fstart[f0 + nf] = start;
+  loadedPts = p0 + np; loadedFirms = f0 + nf;
+}
+
+let themeRGB;
+async function load() {
+  try { meta = await (await fetch(DATA + "meta.json")).json(); }
+  catch (e) { return fail("Could not load the atlas data (" + DATA + "meta.json). " + e.message); }
+  themeRGB = meta.themes.broad.map((t, i) => hex(PALETTE[i % PALETTE.length]));
+  allocate(); buildFilters(); applyHash(); deckgl.setProps({ initialViewState: viewState }); render();
+  const total = meta.chunks.length;
+  // fetch chunks with limited parallelism, ingest in order
+  const pending = meta.chunks.map((ch, k) => () => Promise.all([getBin(`c${k}_pts.bin`), getBin(`c${k}_firms.bin`)]));
+  const results = new Array(total); let next = 0, done = 0;
+  const pumps = Array.from({ length: 3 }, async () => {
+    while (next < total) {
+      const k = next++;
+      try { results[k] = await pending[k](); } catch (e) { fail("Loading failed: " + e.message); throw e; }
+    }
+  });
+  for (let k = 0; k < total; k++) {
+    while (!results[k]) await new Promise(r => setTimeout(r, 30));
+    ingest(meta.chunks[k], results[k][0], results[k][1]);
+    results[k] = 1; done++;
+    $("bar").firstElementChild.style.width = (100 * done / total) + "%";
+    recomputeVisibility(); render();
+    if (k === 0 && pendingFirm != null) restoreSelection();
+  }
+  await Promise.all(pumps);
+  $("bar").style.display = "none";
+  if (meta.preview) $("statTxt").insertAdjacentHTML("afterend",
+    `<div style="margin-top:6px;color:#ffd166">${esc(meta.preview)}</div>`);
+  if (pendingFirm != null) restoreSelection();
+}
+
+// ------------------------------------------------------------------ filters
+function buildFilters() {
+  const mk = (box, items, key, swatch) => {
+    box.innerHTML = "";
+    for (const it of items) {
+      const row = document.createElement("label");
+      row.className = "row"; row.dataset.id = it.id; row.dataset.search = (it.name + " " + (it.alt || "")).toLowerCase();
+      row.innerHTML = `<input type="checkbox" checked>${swatch ? `<span class="sw" style="background:${swatch(it)}"></span>` : ""}`
+        + `<span class="nm" title="${esc(it.title || it.name)}">${esc(it.name)}</span><span class="ct">${fmtShort(it.n)}</span>`;
+      row.querySelector("input").addEventListener("change", () => { readChecks(key); });
+      box.appendChild(row);
+    }
+  };
+  mk($("themeList"), meta.themes.broad.map((t, i) => ({ id: String(i), name: t.name, n: t.n, title: t.name + " — " + t.kw.join(", ") })),
+     "theme", it => PALETTE[+it.id % PALETTE.length]);
+  mk($("countryList"), [...meta.countries].sort((a, b) => a.name.localeCompare(b.name))
+       .map(c => ({ id: c.code, name: c.name, alt: c.code, n: c.n })), "country");
+  const secN = {};
+  meta.nace2.forEach(n => secN[n.section] = (secN[n.section] || 0) + n.n);
+  mk($("naceList"), Object.keys(secN).sort().map(s => ({ id: s, name: `${s} · ${NACE_SECTIONS[s] || s}`, n: secN[s] })), "nace");
+  if (meta.has_nace === false) $("naceList").closest(".sec").style.display = "none";
+
+  $("countrySearch").addEventListener("input", e => {
+    const q = e.target.value.trim().toLowerCase();
+    for (const r of $("countryList").children) r.style.display = !q || r.dataset.search.includes(q) ? "" : "none";
+  });
+  document.querySelectorAll("[data-all],[data-none]").forEach(b => b.addEventListener("click", () => {
+    const key = b.dataset.all || b.dataset.none, on = !!b.dataset.all;
+    const box = { theme: "themeList", country: "countryList", nace: "naceList" }[key];
+    for (const r of $(box).children) if (r.style.display !== "none") r.querySelector("input").checked = on;
+    readChecks(key);
+  }));
+  $("showChips").addEventListener("click", e => {
+    const c = e.target.closest(".chip"); if (!c) return;
+    sel[c.dataset.k] = !sel[c.dataset.k]; c.classList.toggle("on", sel[c.dataset.k]);
+    recomputeVisibility(); render(); writeHash();
+  });
+  $("toggleSide").addEventListener("click", () => $("side").classList.toggle("collapsed"));
+  if (innerWidth < 760) $("side").classList.add("collapsed");
+}
+function readChecks(key) {
+  const box = { theme: "themeList", country: "countryList", nace: "naceList" }[key];
+  const rows = [...$(box).children];
+  const on = rows.filter(r => r.querySelector("input").checked).map(r => r.dataset.id);
+  sel[key] = on.length === rows.length ? null : new Set(on);
+  recomputeVisibility(); render(); writeHash();
+}
+function syncChecks() {
+  for (const [key, box] of [["theme","themeList"],["country","countryList"],["nace","naceList"]])
+    for (const r of $(box).children) r.querySelector("input").checked = !sel[key] || sel[key].has(r.dataset.id);
+  for (const c of $("showChips").children) c.classList.toggle("on", sel[c.dataset.k]);
+}
+
+let nVisPts = 0, nVisFirms = 0;
+function recomputeVisibility() {
+  const themeOk = new Uint8Array(meta.themes.broad.length).fill(1);
+  if (sel.theme) themeOk.fill(0), sel.theme.forEach(t => themeOk[+t] = 1);
+  const cOk = meta.countries.map(c => !sel.country || sel.country.has(c.code) ? 1 : 0);
+  const nOk = sectionOfNace.map(s => !sel.nace || sel.nace.has(s) ? 1 : 0);
+  const firmOk = new Uint8Array(loadedFirms);
+  let vf = 0;
+  for (let f = 0; f < loadedFirms; f++) {
+    firmOk[f] = cOk[fcountry[f]] & nOk[fnace[f]];
+    const v = sel.firms && firmOk[f] && themeOk[fbroad[f]] ? 1 : 0;
+    fvis[f] = v; vf += v;
+  }
+  const tOk = [sel.prod ? 1 : 0, sel.proc ? 1 : 0];
+  let vp = 0;
+  for (let i = 0; i < loadedPts; i++) {
+    const v = tOk[typ[i]] & firmOk[firmOf[i]] & themeOk[broadOfFine[fine[i]]];
+    vis[i] = v; vp += v;
+  }
+  nVisPts = vp; nVisFirms = vf;
+  vis = vis.slice(); fvis = fvis.slice();     // new identity -> deck re-uploads the attribute
+  $("statTxt").innerHTML = `<b>${fmt(vp)}</b> innovations · <b>${fmt(vf)}</b> firms shown`
+    + (loadedPts < N ? ` · loading ${Math.round(100 * loadedPts / N)}%` : ` of ${fmt(N)} / ${fmt(NF)}`);
+}
+
+// ------------------------------------------------------------------ texts
+async function textBlock(b) {
+  if (!textCache.has(b)) textCache.set(b, getJSONgz(`t/${b}.json.gz`).catch(e => { textCache.delete(b); throw e; }));
+  return textCache.get(b);
+}
+async function firmText(f) {
+  const B = meta.block_firms, b = Math.floor(f / B), blk = await textBlock(b);
+  const base = fstart[b * B];
+  return { name: blk.f[f - b * B], items: blk.i.slice(fstart[f] - base, fstart[f + 1] - base) };
+}
+async function itemText(i) {
+  const f = firmOf[i], t = await firmText(f);
+  return { firm: t.name, item: t.items[i - fstart[f]] };
+}
+
+// ------------------------------------------------------------------ rendering
+function initialView() {
+  const m = Math.min(innerWidth, innerHeight);
+  return { target: [WORLD / 2, WORLD / 2, 0], zoom: Math.log2(m / WORLD) - 0.05, minZoom: -2, maxZoom: 14 };
+}
+let pendingFirm = null;
+function applyHash() {
+  const h = readHash();
+  viewState = Object.assign(initialView(), h.view || {});
+  if (h.show) { const s = h.show.split("."); sel.prod = s.includes("prod"); sel.proc = s.includes("proc"); sel.firms = s.includes("firms"); }
+  sel.theme = h.theme; sel.country = h.country; sel.nace = h.nace;
+  pendingFirm = h.firm;
+  syncChecks();
+}
+function restoreSelection() {
+  if (pendingFirm != null && pendingFirm < loadedFirms) { selectFirm(pendingFirm, null, false); pendingFirm = null; }
+}
+
+function layers() {
+  const zoom = viewState.zoom, z0 = initialView().zoom;
+  const ptRadius = Math.min(3.2, 0.9 * Math.pow(1.35, zoom - z0));
+  const L = [];
+  L.push(new deck.ScatterplotLayer({
+    id: "pts",
+    data: { length: loadedPts, attributes: {
+      getPosition: { value: pos, size: 2 }, getFillColor: { value: col, size: 4, normalized: true },
+      getFilterValue: { value: vis, size: 1 } } },
+    radiusUnits: "pixels", getRadius: ptRadius, stroked: false, pickable: true,
+    extensions: [new deck.DataFilterExtension({ filterSize: 1 })], filterRange: [0.5, 1.5],
+    updateTriggers: { getRadius: ptRadius }
+  }));
+  if (sel.firms) L.push(new deck.ScatterplotLayer({
+    id: "firms",
+    data: { length: loadedFirms, attributes: { getPosition: { value: fpos, size: 2 }, getFilterValue: { value: fvis, size: 1 } } },
+    radiusUnits: "pixels", getRadius: Math.min(5, ptRadius * 1.8 + 0.6),
+    filled: true, getFillColor: [255, 255, 255, 55], stroked: true, getLineColor: [255, 255, 255, 140],
+    lineWidthUnits: "pixels", getLineWidth: 0.6, pickable: true, visible: zoom > z0 + 1.2,
+    extensions: [new deck.DataFilterExtension({ filterSize: 1 })], filterRange: [0.5, 1.5],
+    updateTriggers: { getRadius: ptRadius }
+  }));
+  // links for the hovered and the selected firm
+  const linkFirms = [];
+  if (selected) linkFirms.push([selected.firm, 230]);
+  if (hoverFirm >= 0 && (!selected || hoverFirm !== selected.firm)) linkFirms.push([hoverFirm, 130]);
+  const links = [], marks = [];
+  for (const [f, a] of linkFirms) {
+    for (let i = fstart[f]; i < fstart[f + 1]; i++) {
+      links.push({ s: [fpos[2*f], fpos[2*f+1]], t: [pos[2*i], pos[2*i+1]], a, c: themeRGB[broadOfFine[fine[i]]] });
+      marks.push({ p: [pos[2*i], pos[2*i+1]], i, c: themeRGB[broadOfFine[fine[i]]], on: selected && selected.item === i });
+    }
+    marks.push({ p: [fpos[2*f], fpos[2*f+1]], firm: true });
+  }
+  if (links.length) {
+    L.push(new deck.LineLayer({ id: "links", data: links, getSourcePosition: d => d.s, getTargetPosition: d => d.t,
+      getColor: d => [...d.c, d.a], getWidth: 1.4, widthUnits: "pixels" }));
+    L.push(new deck.ScatterplotLayer({ id: "marks", data: marks, getPosition: d => d.p, radiusUnits: "pixels",
+      getRadius: d => d.firm ? 7 : d.on ? 7 : 4.5, getFillColor: d => d.firm ? [255,255,255,255] : [...d.c, 255],
+      stroked: true, getLineColor: [0, 21, 34, 255], lineWidthUnits: "pixels", getLineWidth: 1.5, pickable: true,
+      updateTriggers: { getRadius: selected && selected.item } }));
+  }
+  // theme labels: broad when zoomed out, fine when zoomed in
+  const fineMode = zoom > z0 + 2.2;
+  const themeOn = i => !sel.theme || sel.theme.has(String(i));
+  const lab = fineMode
+    ? meta.themes.fine.filter(t => themeOn(t.broad) && t.n > 0)
+    : meta.themes.broad.filter((t, i) => themeOn(i) && t.n > 0);
+  L.push(new deck.TextLayer({
+    id: "labels", data: lab, characterSet: "auto",
+    getPosition: d => [d.x * WORLD, WORLD - d.y * WORLD], getText: d => d.name,
+    getSize: fineMode ? 12 : 14, fontFamily: "Inter, sans-serif", fontWeight: 600,
+    getColor: d => [...themeRGB[fineMode ? d.broad : d.id], 235],
+    outlineWidth: 3, outlineColor: [0, 18, 28, 255], fontSettings: { sdf: true },
+    getTextAnchor: "middle", getAlignmentBaseline: "center", pickable: false
+  }));
+  return L;
+}
+function render() { if (deckgl) deckgl.setProps({ layers: layers() }); }
+
+// ------------------------------------------------------------------ interaction
+const tip = $("tip");
+let tipToken = 0;
+function onHover(info) {
+  const { layer, index, x, y } = info;
+  let newHover = -1;
+  if (!layer || index < 0) { tip.style.display = "none"; }
+  else {
+    const token = ++tipToken;
+    let firm, item = null;
+    if (layer.id === "pts") { item = index; firm = firmOf[index]; }
+    else if (layer.id === "firms") { firm = index; newHover = index; }
+    else if (layer.id === "marks") { const d = info.object; if (d.firm) return; item = d.i; firm = firmOf[d.i]; }
+    else return;
+    tip.style.display = "block"; tip.style.left = Math.min(x + 14, innerWidth - 330) + "px"; tip.style.top = (y + 14) + "px";
+    const cname = meta.countries[fcountry[firm]].name, sec = meta.has_nace === false ? "" : ` · NACE ${sectionOfNace[fnace[firm]]}`;
+    if (item != null) {
+      const th = meta.themes.fine[fine[item]];
+      tip.innerHTML = `<div class="t">…</div><div class="m">${typ[item] ? "Process" : "Product"} · ${esc(th.name)}</div>`;
+      itemText(item).then(t => { if (token !== tipToken) return;
+        tip.innerHTML = `<div class="t">${esc(t.item[0])}</div><div class="m">${typ[item] ? "Process" : "Product"} · ${esc(th.name)}</div>`
+          + `<div class="m">${esc(t.firm)} · ${esc(cname)}</div>`; }).catch(() => {});
+    } else {
+      tip.innerHTML = `<div class="t">…</div><div class="m">${fcount[firm]} innovations · ${esc(cname)} ${sec}</div>`;
+      firmText(firm).then(t => { if (token !== tipToken) return;
+        tip.innerHTML = `<div class="t">${esc(t.name)}</div><div class="m">${fcount[firm]} innovations · ${esc(cname)} ${sec}</div>`; }).catch(() => {});
+    }
+  }
+  if (newHover !== hoverFirm) { hoverFirm = newHover; render(); }
+}
+function onClick(info) {
+  const { layer, index } = info;
+  if (!layer || index < 0) { clearSelection(); return; }
+  if (layer.id === "pts") selectFirm(firmOf[index], index);
+  else if (layer.id === "firms") selectFirm(index, null);
+  else if (layer.id === "marks") { const d = info.object; if (!d.firm) selectFirm(firmOf[d.i], d.i); }
+}
+function clearSelection() { selected = null; $("detail").classList.remove("show"); render(); writeHash(); }
+
+async function selectFirm(f, item, fly = false) {
+  selected = { firm: f, item };
+  render(); writeHash();
+  const d = $("detail"); d.classList.add("show");
+  const c = meta.countries[fcountry[f]], n2 = meta.nace2[fnace[f]];
+  $("dName").textContent = "…";
+  $("dMeta").textContent = meta.has_nace === false ? `${c.name} · ${fcount[f]} innovations`
+    : `${c.name} · NACE ${n2.section} ${n2.code} (${NACE_SECTIONS[n2.section] || ""}) · ${fcount[f]} innovations`;
+  $("dList").innerHTML = "";
+  let t;
+  try { t = await firmText(f); } catch (e) { $("dName").textContent = "Could not load texts"; return; }
+  if (!selected || selected.firm !== f) return;
+  $("dName").textContent = t.name;
+  const box = $("dList");
+  t.items.forEach((it, k) => {
+    const i = fstart[f] + k, th = meta.themes.fine[fine[i]], rgb = themeRGB[th.broad];
+    const el = document.createElement("div");
+    el.className = "inno" + (i === item ? " sel" : ""); el.dataset.i = i;
+    el.innerHTML = `<div class="t">${esc(it[0])}</div>${it[1] ? `<div class="d">${esc(it[1])}</div>` : ""}`
+      + `<div class="tags"><span class="tag">${typ[i] ? "Process" : "Product"}</span>${it[2] ? `<span class="tag">${it[2]}</span>` : ""}`
+      + `<span class="tag k" style="background:rgb(${rgb})">${esc(th.name)}</span></div>`;
+    el.addEventListener("click", () => {
+      selected.item = i; box.querySelectorAll(".inno").forEach(x => x.classList.toggle("sel", +x.dataset.i === i)); render();
+    });
+    box.appendChild(el);
+  });
+  if (item != null) box.querySelector(".inno.sel")?.scrollIntoView({ block: "nearest" });
+  if (fly) flyTo(fpos[2*f], fpos[2*f+1]);
+}
+function flyTo(x, y) {
+  viewState = Object.assign({}, viewState, { target: [x, y, 0], zoom: Math.max(viewState.zoom, initialView().zoom + 3),
+    transitionDuration: 600 });
+  deckgl.setProps({ initialViewState: viewState });
+}
+$("close").addEventListener("click", clearSelection);
+addEventListener("keydown", e => { if (e.key === "Escape") clearSelection(); });
+
+// ------------------------------------------------------------------ helpers
+function esc(s) { return String(s ?? "").replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c])); }
+function fmtShort(n) { return n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? Math.round(n / 1e3) + "k" : String(n); }
+
+// ------------------------------------------------------------------ boot
+viewState = initialView();
+deckgl = new deck.Deck({
+  parent: $("map"), views: new deck.OrthographicView({ id: "o", flipY: false }),
+  initialViewState: viewState, controller: { inertia: true, scrollZoom: { speed: 0.02, smooth: true } },
+  layers: [], pickingRadius: 4,
+  onViewStateChange: ({ viewState: v }) => {
+    const zChanged = Math.abs(v.zoom - viewState.zoom) > 0.05;
+    viewState = v; writeHash(); if (zChanged) render(); return v;
+  },
+  onHover,
+  getCursor: ({ isHovering, isDragging }) => isDragging ? "grabbing" : isHovering ? "pointer" : "grab"
+});
+// own click handling: robust, and ignores drags
+let downXY = null;
+$("map").addEventListener("pointerdown", e => { downXY = [e.clientX, e.clientY]; });
+$("map").addEventListener("click", e => {
+  if (!downXY || Math.hypot(e.clientX - downXY[0], e.clientY - downXY[1]) > 5) return;
+  const r = $("map").getBoundingClientRect();
+  const info = deckgl.pickObject({ x: e.clientX - r.left, y: e.clientY - r.top, radius: 4,
+    layerIds: ["marks", "firms", "pts"] }) || { layer: null, index: -1 };
+  onClick(info);
+});
+document.fonts.ready.then(render);
+load();
+})();
+</script>
+</body>
+</html>
