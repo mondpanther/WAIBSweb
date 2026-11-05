@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <!-- Google Analytics (GA4) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-EZ3GQGSNWL"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-EZ3GQGSNWL');
+  </script>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>World AI Business Survey (WAIBS)</title>
+  <meta name="description" content="The World AI Business Survey (WAIBS): business surveys run with large language models." />
+  <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon/favicon-32.png" />
+  <link rel="icon" type="image/png" sizes="16x16" href="assets/favicon/favicon-16.png" />
+  <link rel="icon" href="assets/favicon/favicon.ico" sizes="any" />
+  <link rel="apple-touch-icon" sizes="180x180" href="assets/favicon/apple-touch-icon.png" />
+  <meta name="theme-color" content="#001522" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@500;600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --cyan: #2fe0e0;
+      --blue: #2a8ad8;
+      --text: #e6f4f7;
+      --muted: #9fc3cc;
+      --box-bg: rgba(0, 30, 48, 0.55);
+      --box-border: rgba(47, 224, 224, 0.45);
+      --col: 760px;
+    }
+    html { min-height: 100%; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--text);
+      font-family: Inter, system-ui, sans-serif;
+      /* matches the logo's own background: lighter teal at top-centre, near-black at the bottom */
+      background:
+        linear-gradient(to bottom, #002c41 0%, #002337 50%, #001228 100%);
+      background-color: #001228;
+      background-attachment: fixed;
+    }
+    .hero { display: flex; justify-content: center; padding: 1vh 16px 0; }
+    .hero img {
+      width: min(80vw, 40vh, 460px);
+      height: auto;
+      /* feather the square's edges so it blends into the page */
+      -webkit-mask-image: radial-gradient(circle at 50% 50%, #000 62%, transparent 71%);
+              mask-image: radial-gradient(circle at 50% 50%, #000 62%, transparent 71%);
+    }
+
+    /* ---- concept → network → GAIIS, stacked ---- */
+    .flow {
+      max-width: var(--col);
+      margin: 0 auto;
+      padding: 0 16px 40px;
+    }
+    .box {
+      background: var(--box-bg);
+      border: 1px solid var(--box-border);
+      border-radius: 14px;
+      padding: 22px 26px;
+      box-shadow: 0 0 40px rgba(47, 224, 224, 0.08), inset 0 0 30px rgba(47, 224, 224, 0.04);
+      backdrop-filter: blur(3px);
+    }
+    .label {
+      font: 600 12px/1 Montserrat, sans-serif;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--cyan);
+      margin: 0 0 10px;
+    }
+    h2 {
+      font: 700 clamp(21px, 2.6vw, 27px)/1.25 Montserrat, sans-serif;
+      margin: 0;
+      text-wrap: balance;
+    }
+    .concept p.body { line-height: 1.6; margin: 12px 0 0; font-size: 15.5px; }
+
+    .net { display: block; width: 100%; height: 160px; }
+    .net .edge { stroke: url(#edgeGrad); stroke-width: 1; opacity: 0.45; }
+    .net .pulse {
+      stroke: var(--cyan); stroke-width: 1.6; fill: none;
+      stroke-dasharray: 6 140; animation: flow 3.2s linear infinite;
+    }
+    .net .node { fill: #001e30; stroke: var(--cyan); stroke-width: 1.6; }
+    .net .node.hot { fill: var(--cyan); }
+    @keyframes flow { to { stroke-dashoffset: -146; } }
+    @media (prefers-reduced-motion: reduce) { .net .pulse { animation: none; opacity: 0; } }
+
+    /* collapsible GAIIS box */
+    details.gaiis { padding: 0; }
+    details.gaiis summary {
+      list-style: none;
+      cursor: pointer;
+      padding: 22px 26px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      border-radius: 14px;
+    }
+    details.gaiis summary::-webkit-details-marker { display: none; }
+    details.gaiis summary:hover { background: rgba(47, 224, 224, 0.05); }
+    details.gaiis summary:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+    .summary-text { flex: 1; }
+    .summary-text h2 span { color: var(--cyan); }
+    .hint { color: var(--muted); font-size: 13.5px; margin: 6px 0 0; }
+    details[open] .hint { display: none; }
+    .chev {
+      flex: none;
+      width: 34px; height: 34px;
+      border: 1px solid var(--box-border);
+      border-radius: 50%;
+      display: grid; place-items: center;
+      transition: transform 0.25s ease;
+      color: var(--cyan);
+    }
+    details[open] .chev { transform: rotate(180deg); }
+    .gaiis-body { padding: 0 26px 24px; }
+    details[open] .gaiis-body { animation: reveal 0.3s ease; }
+    @keyframes reveal { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+    .gaiis .authors { color: var(--muted); font-size: 14px; margin: 0 0 10px; }
+    .gaiis p.paper-link { margin: 0 0 16px; display: flex; flex-wrap: wrap; gap: 8px; }
+    .gaiis p.paper-link a {
+      display: inline-block; padding: 7px 14px; border: 1px solid var(--box-border); border-radius: 999px;
+      text-decoration: none; font: 600 14px/1.2 Montserrat, sans-serif;
+    }
+    .gaiis p.paper-link a:hover { background: rgba(47, 224, 224, 0.1); }
+    .gaiis p { line-height: 1.6; margin: 0 0 14px; font-size: 15.5px; }
+    .gfig { margin: 4px 0 18px; }
+    .gfig img { display: block; width: 100%; height: auto; border-radius: 10px; border: 1px solid var(--box-border); }
+    .gfig figcaption { color: var(--muted); font-size: 13px; line-height: 1.5; margin-top: 8px; }
+    .gfig figcaption a { color: var(--cyan); }
+    .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 18px 0; }
+    .stat { border-top: 2px solid var(--cyan); padding-top: 8px; }
+    .stat b { display: block; font: 700 24px/1.1 Montserrat, sans-serif; color: #fff; }
+    .stat small { color: var(--muted); font-size: 12.5px; line-height: 1.35; display: block; margin-top: 4px; }
+    .gaiis ul { margin: 0 0 14px; padding-left: 18px; line-height: 1.55; font-size: 15px; }
+    .gaiis li { margin-bottom: 6px; }
+    .gaiis li::marker { color: var(--cyan); }
+    .gaiis a { color: var(--cyan); }
+
+    @media (max-width: 520px) {
+      .box, details.gaiis summary { padding: 18px 18px; }
+      details.gaiis { padding: 0; }
+      .gaiis-body { padding: 0 18px 20px; }
+      .stat b { font-size: 20px; }
+    }
+  </style>
+</head>
+<body>
+  <header class="hero">
+    <img src="assets/d83ddb14-e6d2-463c-be17-4e9dfe70b81d.jpeg" alt="WAIBS — World AI Business Survey" />
+  </header>
+
+  <main class="flow">
+    <section class="box concept" id="concept">
+      <p class="label">Concept</p>
+      <h2>Can we do business surveys with LLMs?</h2>
+      <p class="body">
+        Much of the research in economics and business studies needs data on firms, and gathering
+        that data can be difficult. But a great deal of information about firms has been collected
+        by the builders of large language models, and much of it is now encoded in the models
+        themselves. To make it accessible for research, we need to prompt LLMs systematically.
+      </p>
+    </section>
+
+    <svg class="net" id="net" aria-hidden="true"></svg>
+
+    <details class="box gaiis" id="gaiis">
+      <summary>
+        <div class="summary-text">
+          <p class="label">Surveys</p>
+          <h2>Global AI Innovation Survey <span>GAIIS</span></h2>
+          <p class="hint">Click to read more</p>
+        </div>
+        <span class="chev" aria-hidden="true">
+          <svg width="14" height="14" viewBox="0 0 14 14"><path d="M2 5l5 5 5-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </span>
+      </summary>
+
+      <div class="gaiis-body">
+        <p class="authors">Prashant Garg, Peter John Lambert, Ralf Martin &amp; Denis Medvedev</p>
+        <p class="paper-link"><a href="https://cep.lse.ac.uk/_NEW/PUBLICATIONS/abstract.asp?index=12572" target="_blank" rel="noopener">Read the CEP Discussion Paper &rarr;</a> <a href="GAIISia/">Explore the innovation atlas (GAIISia) &rarr;</a></p>
+
+        <p>
+          Patents capture only a small fraction of innovation, and firm surveys are costly,
+          so only small samples of firms are ever asked. Yet information on firms' new products
+          and processes is everywhere: company websites, news reports, online forums, social media.
+          Frontier large language models have already absorbed much of it in training, so GAIIS
+          runs an innovation survey through LLM prompts.
+        </p>
+
+        <div class="stats">
+          <div class="stat"><b>~600k</b><small>firms surveyed</small></div>
+          <div class="stat"><b>40</b><small>countries</small></div>
+          <div class="stat"><b>~6M</b><small>reported innovations, each with a text description</small></div>
+        </div>
+
+        <p>
+          <strong>Is it just AI slop?</strong> No. Using cross-fitting (no firm is scored by a model
+          that saw its own data), the innovation text predicts productivity beyond inputs, patents and
+          country×sector effects: +1 SD in product innovation is associated with about 5% higher TFP
+          (about 2.5% for process innovation).
+        </p>
+
+        <ul>
+          <li>~40% of firms show product and over 25% process innovation, against fewer than 4% that patent.</li>
+          <li>14% have green product and 12% green process innovation, against under 1% with a green patent.</li>
+          <li>Labor-augmenting innovation is about 3× as common as labor-saving for products, 2× for processes.</li>
+          <li>Countries with greener innovation also tilt more towards labor-augmenting innovation.</li>
+        </ul>
+
+        <figure class="gfig">
+          <a href="GAIISia/#col=labor&amp;a=2" title="Open this view in the atlas">
+            <img src="assets/gaiisia_labor_map.png" alt="Map of 5.9 million innovations, coloured by labor effect: blue labor-augmenting, red labor-saving" loading="lazy" />
+          </a>
+          <figcaption>
+            All 5.9M innovations placed by the meaning of their description and coloured by labor effect:
+            blue = labor-augmenting (3.2M), red = labor-saving (1.1M), grey = unclear. Labor-augmenting
+            innovation dominates everywhere; labor-saving innovation clusters in a few pockets such as CNC/CAM
+            fabrication, payments automation and ERP. <a href="GAIISia/#col=labor&amp;a=2">Explore in GAIISia &rarr;</a>
+          </figcaption>
+        </figure>
+
+        <p style="margin:0">
+          Paper: <a href="https://cep.lse.ac.uk/_NEW/PUBLICATIONS/abstract.asp?index=12572" target="_blank" rel="noopener">CEP Discussion Paper</a> &middot; Data for researchers: <a href="https://huggingface.co/datasets/mondpanther/gaiis-innobase" target="_blank" rel="noopener">GAIIS innobase on Hugging Face</a> (gated; request access with your name and affiliation).
+        </p>
+      </div>
+    </details>
+  </main>
+
+  <script>
+    // Neural-network link from the Concept box down to the GAIIS box.
+    // Its height fills whatever space is left in the window (so the folded GAIIS
+    // box sits at the bottom of the screen), and its density follows the width.
+    (function () {
+      const NS = "http://www.w3.org/2000/svg";
+      const svg = document.getElementById("net");
+      const concept = document.getElementById("concept");
+      const summary = document.querySelector("#gaiis summary");
+      const MIN_H = 100, MAX_H = 260, BOTTOM_PAD = 40;
+
+      function fitHeight() {
+        const top = concept.getBoundingClientRect().bottom + window.scrollY;
+        const free = window.innerHeight - top - summary.offsetHeight - BOTTOM_PAD;
+        svg.style.height = Math.max(MIN_H, Math.min(MAX_H, free)) + "px";
+      }
+
+      function draw() {
+        svg.innerHTML = "";
+        const W = svg.clientWidth, H = svg.clientHeight;
+        if (!W || !H) return;
+        svg.setAttribute("viewBox", "0 0 " + W + " " + H);
+
+        // more hidden layers when tall, more nodes per layer when wide
+        const hidden = H > 200 ? 3 : 2;
+        const width = Math.max(3, Math.min(6, Math.round(W / 130)));
+        const layers = [1];
+        for (let i = 0; i < hidden; i++) layers.push(i % 2 ? width - 1 : width);
+        layers.push(1);
+
+        svg.innerHTML =
+          '<defs><linearGradient id="edgeGrad" x1="0" y1="0" x2="0" y2="1">' +
+          '<stop offset="0" stop-color="#2fe0e0"/><stop offset="1" stop-color="#2a8ad8"/></linearGradient></defs>';
+
+        const pad = 7;
+        const pts = layers.map((n, i) => {
+          const y = pad + (H - 2 * pad) * i / (layers.length - 1);
+          return Array.from({ length: n }, (_, j) => {
+            const x = n === 1 ? W / 2 : W * (0.18 + 0.64 * j / (n - 1));
+            return [x, y];
+          });
+        });
+
+        const g = document.createElementNS(NS, "g");
+        for (let i = 0; i < pts.length - 1; i++)
+          for (const p of pts[i]) for (const q of pts[i + 1]) {
+            const l = document.createElementNS(NS, "line");
+            l.setAttribute("x1", p[0]); l.setAttribute("y1", p[1]);
+            l.setAttribute("x2", q[0]); l.setAttribute("y2", q[1]);
+            l.setAttribute("class", "edge");
+            g.appendChild(l);
+          }
+        svg.appendChild(g);
+
+        // animated signals travelling from Concept to GAIIS
+        const nPulses = Math.max(3, Math.min(6, Math.round(W / 140)));
+        for (let s = 0; s < nPulses; s++) {
+          const path = pts.map(layer => layer[Math.floor(Math.random() * layer.length)]);
+          const el = document.createElementNS(NS, "polyline");
+          el.setAttribute("points", path.map(p => p.join(",")).join(" "));
+          el.setAttribute("class", "pulse");
+          el.style.animationDelay = (-s * 3.2 / nPulses) + "s";
+          svg.appendChild(el);
+        }
+
+        pts.forEach((layer, i) => layer.forEach(p => {
+          const end = i === 0 || i === layers.length - 1;
+          const c = document.createElementNS(NS, "circle");
+          c.setAttribute("cx", p[0]); c.setAttribute("cy", p[1]);
+          c.setAttribute("r", end ? 5.5 : 3.6);
+          c.setAttribute("class", "node" + (end ? " hot" : ""));
+          svg.appendChild(c);
+        }));
+      }
+
+      function update() { fitHeight(); draw(); }
+      // re-fit when the window changes (not when the GAIIS box is opened)
+      let t, lastW = 0, lastH = 0;
+      function onResize() {
+        if (window.innerWidth === lastW && Math.abs(window.innerHeight - lastH) < 80) return; // ignore mobile URL-bar jitter
+        lastW = window.innerWidth; lastH = window.innerHeight;
+        clearTimeout(t); t = setTimeout(update, 100);
+      }
+      window.addEventListener("resize", onResize);
+      const img = document.querySelector(".hero img");
+      if (img.complete) onResize(); else img.addEventListener("load", onResize);
+      document.fonts && document.fonts.ready.then(update);
+      lastW = window.innerWidth; lastH = window.innerHeight; update();
+    })();
+  </script>
+</body>
+</html>

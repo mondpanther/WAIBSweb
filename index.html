@@ -21,15 +21,15 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@500;600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
   <style>
     :root {
       --cyan: #2fe0e0;
       --blue: #2a8ad8;
       --text: #e6f4f7;
       --muted: #9fc3cc;
-      --box-bg: rgba(0, 30, 48, 0.55);
+      --box-bg: rgba(0, 30, 48, 0.72);
       --box-border: rgba(47, 224, 224, 0.45);
-      --col: 760px;
     }
     html { min-height: 100%; }
     body {
@@ -37,35 +37,51 @@
       min-height: 100vh;
       color: var(--text);
       font-family: Inter, system-ui, sans-serif;
-      /* matches the logo's own background: lighter teal at top-centre, near-black at the bottom */
-      background:
-        linear-gradient(to bottom, #002c41 0%, #002337 50%, #001228 100%);
+      background: linear-gradient(to bottom, #002c41 0%, #002337 50%, #001228 100%);
       background-color: #001228;
       background-attachment: fixed;
+      overflow-x: hidden;
     }
     .hero { display: flex; justify-content: center; padding: 1vh 16px 0; }
     .hero img {
-      width: min(80vw, 40vh, 460px);
+      width: min(80vw, 34vh, 400px);
       height: auto;
-      /* feather the square's edges so it blends into the page */
       -webkit-mask-image: radial-gradient(circle at 50% 50%, #000 62%, transparent 71%);
               mask-image: radial-gradient(circle at 50% 50%, #000 62%, transparent 71%);
     }
 
-    /* ---- concept → network → GAIIS, stacked ---- */
-    .flow {
-      max-width: var(--col);
-      margin: 0 auto;
-      padding: 0 16px 40px;
-    }
+    /* ---- the graph: boxes are nodes, links are small neural nets ---- */
+    #graph { position: relative; width: 100%; min-height: 70vh; margin-top: -2vh; }
+    #links { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+    #links .edge { stroke: url(#edgeGrad); stroke-width: 1; opacity: 0.45; fill: none; }
+    #links .pulse { stroke: var(--cyan); stroke-width: 1.6; fill: none; stroke-dasharray: 6 140; animation: flow 3.2s linear infinite; }
+    #links .node { fill: #001e30; stroke: var(--cyan); stroke-width: 1.6; }
+    #links .node.hot { fill: var(--cyan); }
+    @keyframes flow { to { stroke-dashoffset: -146; } }
+    @media (prefers-reduced-motion: reduce) { #links .pulse { animation: none; opacity: 0; } }
+
     .box {
+      position: absolute;
+      left: 0; top: 0;
+      box-sizing: border-box;
       background: var(--box-bg);
       border: 1px solid var(--box-border);
       border-radius: 14px;
-      padding: 22px 26px;
       box-shadow: 0 0 40px rgba(47, 224, 224, 0.08), inset 0 0 30px rgba(47, 224, 224, 0.04);
-      backdrop-filter: blur(3px);
+      backdrop-filter: blur(4px);
+      cursor: grab;
+      touch-action: none;
+      will-change: transform;
     }
+    .box.dragging { cursor: grabbing; box-shadow: 0 0 60px rgba(47, 224, 224, 0.22); z-index: 5; }
+    .box a, .box summary { cursor: pointer; }
+    .box.concept { width: 400px; padding: 22px 26px; }
+    .box.surveys { width: 480px; }
+    .box.tools { width: 330px; }
+    .box.team { width: 360px; }
+    .box[open] { z-index: 3; }
+    .box.surveys[open] { width: 560px; }
+
     .label {
       font: 600 12px/1 Montserrat, sans-serif;
       letter-spacing: 0.16em;
@@ -73,81 +89,63 @@
       color: var(--cyan);
       margin: 0 0 10px;
     }
-    h2 {
-      font: 700 clamp(21px, 2.6vw, 27px)/1.25 Montserrat, sans-serif;
-      margin: 0;
-      text-wrap: balance;
-    }
-    .concept p.body { line-height: 1.6; margin: 12px 0 0; font-size: 15.5px; }
+    h2 { font: 700 clamp(20px, 2.4vw, 25px)/1.25 Montserrat, sans-serif; margin: 0; text-wrap: balance; }
+    h2 span { color: var(--cyan); }
+    .concept p.lead { line-height: 1.6; margin: 12px 0 0; font-size: 15px; }
 
-    .net { display: block; width: 100%; height: 160px; }
-    .net .edge { stroke: url(#edgeGrad); stroke-width: 1; opacity: 0.45; }
-    .net .pulse {
-      stroke: var(--cyan); stroke-width: 1.6; fill: none;
-      stroke-dasharray: 6 140; animation: flow 3.2s linear infinite;
-    }
-    .net .node { fill: #001e30; stroke: var(--cyan); stroke-width: 1.6; }
-    .net .node.hot { fill: var(--cyan); }
-    @keyframes flow { to { stroke-dashoffset: -146; } }
-    @media (prefers-reduced-motion: reduce) { .net .pulse { animation: none; opacity: 0; } }
-
-    /* collapsible GAIIS box */
-    details.gaiis { padding: 0; }
-    details.gaiis summary {
-      list-style: none;
-      cursor: pointer;
-      padding: 22px 26px;
-      display: flex;
-      align-items: center;
-      gap: 16px;
-      border-radius: 14px;
-    }
-    details.gaiis summary::-webkit-details-marker { display: none; }
-    details.gaiis summary:hover { background: rgba(47, 224, 224, 0.05); }
-    details.gaiis summary:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+    /* foldable boxes */
+    details.box { padding: 0; }
+    details.box summary { list-style: none; padding: 20px 24px; display: flex; align-items: center; gap: 16px; border-radius: 14px; user-select: none; }
+    details.box summary::-webkit-details-marker { display: none; }
+    details.box summary:hover { background: rgba(47, 224, 224, 0.05); }
+    details.box summary:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
     .summary-text { flex: 1; }
-    .summary-text h2 span { color: var(--cyan); }
-    .hint { color: var(--muted); font-size: 13.5px; margin: 6px 0 0; }
+    .hint { color: var(--muted); font-size: 13px; margin: 6px 0 0; }
     details[open] .hint { display: none; }
-    .chev {
-      flex: none;
-      width: 34px; height: 34px;
-      border: 1px solid var(--box-border);
-      border-radius: 50%;
-      display: grid; place-items: center;
-      transition: transform 0.25s ease;
-      color: var(--cyan);
-    }
+    .chev { flex: none; width: 32px; height: 32px; border: 1px solid var(--box-border); border-radius: 50%; display: grid; place-items: center; transition: transform 0.25s ease; color: var(--cyan); }
     details[open] .chev { transform: rotate(180deg); }
-    .gaiis-body { padding: 0 26px 24px; }
-    details[open] .gaiis-body { animation: reveal 0.3s ease; }
+    .body { padding: 0 24px 22px; }
+    details[open] .body { animation: reveal 0.3s ease; }
     @keyframes reveal { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
-    .gaiis .authors { color: var(--muted); font-size: 14px; margin: 0 0 10px; }
-    .gaiis p.paper-link { margin: 0 0 16px; display: flex; flex-wrap: wrap; gap: 8px; }
-    .gaiis p.paper-link a {
-      display: inline-block; padding: 7px 14px; border: 1px solid var(--box-border); border-radius: 999px;
-      text-decoration: none; font: 600 14px/1.2 Montserrat, sans-serif;
-    }
-    .gaiis p.paper-link a:hover { background: rgba(47, 224, 224, 0.1); }
-    .gaiis p { line-height: 1.6; margin: 0 0 14px; font-size: 15.5px; }
+    .body p { line-height: 1.6; margin: 0 0 14px; font-size: 15px; }
+    .body a { color: var(--cyan); }
+    .authors { color: var(--muted); font-size: 14px; margin: 0 0 10px; }
+    p.links { margin: 0 0 16px; display: flex; flex-wrap: wrap; gap: 8px; }
+    p.links a { display: inline-block; padding: 7px 14px; border: 1px solid var(--box-border); border-radius: 999px; text-decoration: none; font: 600 13.5px/1.2 Montserrat, sans-serif; }
+    p.links a:hover { background: rgba(47, 224, 224, 0.1); }
+    .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 18px 0; }
+    .stat { border-top: 2px solid var(--cyan); padding-top: 8px; }
+    .stat b { display: block; font: 700 22px/1.1 Montserrat, sans-serif; color: #fff; }
+    .stat small { color: var(--muted); font-size: 12.5px; line-height: 1.35; display: block; margin-top: 4px; }
+    .body ul { margin: 0 0 14px; padding-left: 18px; line-height: 1.55; font-size: 14.5px; }
+    .body li { margin-bottom: 6px; }
+    .body li::marker { color: var(--cyan); }
     .gfig { margin: 4px 0 18px; }
     .gfig img { display: block; width: 100%; height: auto; border-radius: 10px; border: 1px solid var(--box-border); }
     .gfig figcaption { color: var(--muted); font-size: 13px; line-height: 1.5; margin-top: 8px; }
-    .gfig figcaption a { color: var(--cyan); }
-    .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 18px 0; }
-    .stat { border-top: 2px solid var(--cyan); padding-top: 8px; }
-    .stat b { display: block; font: 700 24px/1.1 Montserrat, sans-serif; color: #fff; }
-    .stat small { color: var(--muted); font-size: 12.5px; line-height: 1.35; display: block; margin-top: 4px; }
-    .gaiis ul { margin: 0 0 14px; padding-left: 18px; line-height: 1.55; font-size: 15px; }
-    .gaiis li { margin-bottom: 6px; }
-    .gaiis li::marker { color: var(--cyan); }
-    .gaiis a { color: var(--cyan); }
 
-    @media (max-width: 520px) {
-      .box, details.gaiis summary { padding: 18px 18px; }
-      details.gaiis { padding: 0; }
-      .gaiis-body { padding: 0 18px 20px; }
-      .stat b { font-size: 20px; }
+    /* tools / team lists */
+    .tool { display: block; padding: 14px 16px; border: 1px solid var(--box-border); border-radius: 10px; text-decoration: none; color: var(--text); }
+    .tool:hover { background: rgba(47, 224, 224, 0.08); }
+    .tool b { display: block; font: 700 16px/1.3 Montserrat, sans-serif; }
+    .tool b span { color: var(--cyan); }
+    .tool small { display: block; color: var(--muted); font-size: 13px; margin-top: 3px; }
+    .tool .cta { display: block; margin-top: 8px; color: var(--cyan); font-weight: 600; font-size: 14px; }
+    .team { list-style: none; margin: 0; padding: 0; }
+    .team li { padding: 9px 0; border-top: 1px solid rgba(47, 224, 224, 0.15); }
+    .team li:first-child { border-top: 0; }
+    .team b { display: block; font-weight: 600; font-size: 15px; }
+    .team small { color: var(--muted); font-size: 13px; }
+
+    .gtip { text-align: center; color: var(--muted); font-size: 12.5px; padding: 8px 16px 24px; }
+
+    /* ---- narrow screens: plain stacked layout, no physics ---- */
+    @media (max-width: 760px) {
+      #graph { min-height: 0; margin-top: 0; padding: 0 16px 24px; }
+      #links { display: none; }
+      .box, .box.concept, .box.surveys, .box.tools, .box.team, .box.surveys[open] { position: static; width: auto; transform: none !important; margin: 0 0 16px; cursor: default; touch-action: auto; }
+      .gtip { display: none; }
+      .stat b { font-size: 19px; }
     }
   </style>
 </head>
@@ -156,11 +154,16 @@
     <img src="assets/d83ddb14-e6d2-463c-be17-4e9dfe70b81d.jpeg" alt="WAIBS — World AI Business Survey" />
   </header>
 
-  <main class="flow">
-    <section class="box concept" id="concept">
+  <main id="graph">
+    <svg id="links" aria-hidden="true">
+      <defs><linearGradient id="edgeGrad" x1="0" y1="0" x2="1" y2="0">
+        <stop offset="0" stop-color="#2fe0e0"/><stop offset="1" stop-color="#2a8ad8"/></linearGradient></defs>
+    </svg>
+
+    <section class="box concept" id="concept" data-node="concept">
       <p class="label">Concept</p>
       <h2>Can we do business surveys with LLMs?</h2>
-      <p class="body">
+      <p class="lead">
         Much of the research in economics and business studies needs data on firms, and gathering
         that data can be difficult. But a great deal of information about firms has been collected
         by the builders of large language models, and much of it is now encoded in the models
@@ -168,9 +171,7 @@
       </p>
     </section>
 
-    <svg class="net" id="net" aria-hidden="true"></svg>
-
-    <details class="box gaiis" id="gaiis">
+    <details class="box surveys" id="gaiis" data-node="surveys">
       <summary>
         <div class="summary-text">
           <p class="label">Surveys</p>
@@ -181,11 +182,9 @@
           <svg width="14" height="14" viewBox="0 0 14 14"><path d="M2 5l5 5 5-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </span>
       </summary>
-
-      <div class="gaiis-body">
+      <div class="body">
         <p class="authors">Prashant Garg, Peter John Lambert, Ralf Martin &amp; Denis Medvedev</p>
-        <p class="paper-link"><a href="https://cep.lse.ac.uk/_NEW/PUBLICATIONS/abstract.asp?index=12572" target="_blank" rel="noopener">Read the CEP Discussion Paper &rarr;</a> <a href="GAIISia/">Explore the innovation atlas (GAIISia) &rarr;</a></p>
-
+        <p class="links"><a href="https://cep.lse.ac.uk/_NEW/PUBLICATIONS/abstract.asp?index=12572" target="_blank" rel="noopener">Read the CEP Discussion Paper &rarr;</a> <a href="GAIISia/">Explore the innovation atlas (GAIISia) &rarr;</a></p>
         <p>
           Patents capture only a small fraction of innovation, and firm surveys are costly,
           so only small samples of firms are ever asked. Yet information on firms' new products
@@ -193,27 +192,23 @@
           Frontier large language models have already absorbed much of it in training, so GAIIS
           runs an innovation survey through LLM prompts.
         </p>
-
         <div class="stats">
           <div class="stat"><b>~600k</b><small>firms surveyed</small></div>
           <div class="stat"><b>40</b><small>countries</small></div>
           <div class="stat"><b>~6M</b><small>reported innovations, each with a text description</small></div>
         </div>
-
         <p>
           <strong>Is it just AI slop?</strong> No. Using cross-fitting (no firm is scored by a model
           that saw its own data), the innovation text predicts productivity beyond inputs, patents and
           country×sector effects: +1 SD in product innovation is associated with about 5% higher TFP
           (about 2.5% for process innovation).
         </p>
-
         <ul>
           <li>~40% of firms show product and over 25% process innovation, against fewer than 4% that patent.</li>
           <li>14% have green product and 12% green process innovation, against under 1% with a green patent.</li>
           <li>Labor-augmenting innovation is about 3× as common as labor-saving for products, 2× for processes.</li>
           <li>Countries with greener innovation also tilt more towards labor-augmenting innovation.</li>
         </ul>
-
         <figure class="gfig">
           <a href="GAIISia/#col=labor&amp;a=2" title="Open this view in the atlas">
             <img src="assets/gaiisia_labor_map.png" alt="Map of 5.9 million innovations, coloured by labor effect: blue labor-augmenting, red labor-saving" loading="lazy" />
@@ -225,103 +220,219 @@
             fabrication, payments automation and ERP. <a href="GAIISia/#col=labor&amp;a=2">Explore in GAIISia &rarr;</a>
           </figcaption>
         </figure>
-
         <p style="margin:0">
           Paper: <a href="https://cep.lse.ac.uk/_NEW/PUBLICATIONS/abstract.asp?index=12572" target="_blank" rel="noopener">CEP Discussion Paper</a> &middot; Data for researchers: <a href="https://huggingface.co/datasets/mondpanther/gaiis-innobase" target="_blank" rel="noopener">GAIIS innobase on Hugging Face</a> (gated; request access with your name and affiliation).
         </p>
       </div>
     </details>
+
+    <details class="box tools" id="tools" data-node="tools">
+      <summary>
+        <div class="summary-text">
+          <p class="label">Tools</p>
+          <h2>Explore the data</h2>
+          <p class="hint">Click to see the tools</p>
+        </div>
+        <span class="chev" aria-hidden="true">
+          <svg width="14" height="14" viewBox="0 0 14 14"><path d="M2 5l5 5 5-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </span>
+      </summary>
+      <div class="body">
+        <a class="tool" href="GAIISia/">
+          <b>GAIIS<span>ia</span></b>
+          <small>Global AI Innovation Survey innovation atlas</small>
+          <span class="cta">Explore the Global Innovation Space &rarr;</span>
+        </a>
+      </div>
+    </details>
+
+    <details class="box team" id="team" data-node="team">
+      <summary>
+        <div class="summary-text">
+          <p class="label">Team</p>
+          <h2>Who we are</h2>
+          <p class="hint">Click to see the team</p>
+        </div>
+        <span class="chev" aria-hidden="true">
+          <svg width="14" height="14" viewBox="0 0 14 14"><path d="M2 5l5 5 5-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </span>
+      </summary>
+      <div class="body">
+        <ul class="team">
+          <li><b>Prashant Garg</b><small>Bocconi University</small></li>
+          <li><b>Peter John Lambert</b><small>Centre for Economic Performance, LSE &amp; University of Warwick</small></li>
+          <li><b>Ralf Martin</b><small>Imperial College London &amp; Centre for Economic Performance, LSE</small></li>
+          <li><b>Denis Medvedev</b><small>World Bank</small></li>
+        </ul>
+      </div>
+    </details>
   </main>
+  <p class="gtip">Drag the boxes around · click a box to unfold it</p>
 
   <script>
-    // Neural-network link from the Concept box down to the GAIIS box.
-    // Its height fills whatever space is left in the window (so the folded GAIIS
-    // box sits at the bottom of the screen), and its density follows the width.
-    (function () {
-      const NS = "http://www.w3.org/2000/svg";
-      const svg = document.getElementById("net");
-      const concept = document.getElementById("concept");
-      const summary = document.querySelector("#gaiis summary");
-      const MIN_H = 100, MAX_H = 260, BOTTOM_PAD = 40;
+  (function () {
+    const graph = document.getElementById("graph");
+    const svg = document.getElementById("links");
+    const NS = "http://www.w3.org/2000/svg";
+    const mq = window.matchMedia("(max-width: 760px)");
+    const boxes = [...graph.querySelectorAll(".box")];
+    const PAD = 56;                  // minimum gap between boxes
+    const HIDDEN = 3;                // nodes in each link's hidden layer
 
-      function fitHeight() {
-        const top = concept.getBoundingClientRect().bottom + window.scrollY;
-        const free = window.innerHeight - top - summary.offsetHeight - BOTTOM_PAD;
-        svg.style.height = Math.max(MIN_H, Math.min(MAX_H, free)) + "px";
-      }
+    // ---------- nodes and links
+    const nodes = boxes.map(el => ({ id: el.dataset.node, el, w: 0, h: 0, x: 0, y: 0 }));
+    const byId = Object.fromEntries(nodes.map(n => [n.id, n]));
+    const links = [
+      { source: "concept", target: "surveys" },
+      { source: "concept", target: "tools" },
+      { source: "concept", target: "team" },
+      { source: "surveys", target: "tools" },
+      { source: "surveys", target: "team" },
+    ].map(l => ({ source: byId[l.source], target: byId[l.target] }));
 
-      function draw() {
-        svg.innerHTML = "";
-        const W = svg.clientWidth, H = svg.clientHeight;
-        if (!W || !H) return;
-        svg.setAttribute("viewBox", "0 0 " + W + " " + H);
+    function measure() {
+      for (const n of nodes) { n.w = n.el.offsetWidth; n.h = n.el.offsetHeight; }
+    }
+    function W() { return graph.clientWidth; }
 
-        // more hidden layers when tall, more nodes per layer when wide
-        const hidden = H > 200 ? 3 : 2;
-        const width = Math.max(3, Math.min(6, Math.round(W / 130)));
-        const layers = [1];
-        for (let i = 0; i < hidden; i++) layers.push(i % 2 ? width - 1 : width);
-        layers.push(1);
-
-        svg.innerHTML =
-          '<defs><linearGradient id="edgeGrad" x1="0" y1="0" x2="0" y2="1">' +
-          '<stop offset="0" stop-color="#2fe0e0"/><stop offset="1" stop-color="#2a8ad8"/></linearGradient></defs>';
-
-        const pad = 7;
-        const pts = layers.map((n, i) => {
-          const y = pad + (H - 2 * pad) * i / (layers.length - 1);
-          return Array.from({ length: n }, (_, j) => {
-            const x = n === 1 ? W / 2 : W * (0.18 + 0.64 * j / (n - 1));
-            return [x, y];
-          });
-        });
-
-        const g = document.createElementNS(NS, "g");
-        for (let i = 0; i < pts.length - 1; i++)
-          for (const p of pts[i]) for (const q of pts[i + 1]) {
-            const l = document.createElementNS(NS, "line");
-            l.setAttribute("x1", p[0]); l.setAttribute("y1", p[1]);
-            l.setAttribute("x2", q[0]); l.setAttribute("y2", q[1]);
-            l.setAttribute("class", "edge");
-            g.appendChild(l);
-          }
-        svg.appendChild(g);
-
-        // animated signals travelling from Concept to GAIIS
-        const nPulses = Math.max(3, Math.min(6, Math.round(W / 140)));
-        for (let s = 0; s < nPulses; s++) {
-          const path = pts.map(layer => layer[Math.floor(Math.random() * layer.length)]);
-          const el = document.createElementNS(NS, "polyline");
-          el.setAttribute("points", path.map(p => p.join(",")).join(" "));
-          el.setAttribute("class", "pulse");
-          el.style.animationDelay = (-s * 3.2 / nPulses) + "s";
-          svg.appendChild(el);
+    // ---------- rectangle collision (boxes must not overlap, with padding)
+    function rectCollide() {
+      let nodesRef = [];
+      function force(alpha) {
+        for (let i = 0; i < nodesRef.length; i++) for (let j = i + 1; j < nodesRef.length; j++) {
+          const a = nodesRef[i], b = nodesRef[j];
+          const dx = b.x - a.x, dy = b.y - a.y;
+          const ox = (a.w + b.w) / 2 + PAD - Math.abs(dx);
+          const oy = (a.h + b.h) / 2 + PAD - Math.abs(dy);
+          if (ox <= 0 || oy <= 0) continue;
+          const k = 0.5 * alpha * 2;
+          if (ox < oy) { const s = Math.sign(dx) || 1; a.vx -= ox * k * s; b.vx += ox * k * s; }
+          else { const s = Math.sign(dy) || 1; a.vy -= oy * k * s; b.vy += oy * k * s; }
         }
-
-        pts.forEach((layer, i) => layer.forEach(p => {
-          const end = i === 0 || i === layers.length - 1;
-          const c = document.createElementNS(NS, "circle");
-          c.setAttribute("cx", p[0]); c.setAttribute("cy", p[1]);
-          c.setAttribute("r", end ? 5.5 : 3.6);
-          c.setAttribute("class", "node" + (end ? " hot" : ""));
-          svg.appendChild(c);
-        }));
       }
-
-      function update() { fitHeight(); draw(); }
-      // re-fit when the window changes (not when the GAIIS box is opened)
-      let t, lastW = 0, lastH = 0;
-      function onResize() {
-        if (window.innerWidth === lastW && Math.abs(window.innerHeight - lastH) < 80) return; // ignore mobile URL-bar jitter
-        lastW = window.innerWidth; lastH = window.innerHeight;
-        clearTimeout(t); t = setTimeout(update, 100);
+      force.initialize = ns => { nodesRef = ns; };
+      return force;
+    }
+    // keep boxes inside the graph horizontally and below its top edge
+    function bounds() {
+      let nodesRef = [];
+      function force() {
+        const w = W();
+        for (const n of nodesRef) {
+          const minX = n.w / 2 + 12, maxX = w - n.w / 2 - 12;
+          if (n.x < minX) n.x = minX; if (n.x > maxX) n.x = Math.max(minX, maxX);
+          if (n.y < n.h / 2 + 8) n.y = n.h / 2 + 8;
+        }
       }
-      window.addEventListener("resize", onResize);
-      const img = document.querySelector(".hero img");
-      if (img.complete) onResize(); else img.addEventListener("load", onResize);
-      document.fonts && document.fonts.ready.then(update);
-      lastW = window.innerWidth; lastH = window.innerHeight; update();
-    })();
+      force.initialize = ns => { nodesRef = ns; };
+      return force;
+    }
+
+    let sim = null;
+    const targetY = { concept: 0.06, surveys: 0.5, tools: 0.5, team: 0.88 };
+    const targetX = { concept: 0.5, surveys: 0.24, tools: 0.78, team: 0.56 };
+
+    function startSim() {
+      measure();
+      const w = W(), h0 = Math.max(window.innerHeight * 0.8, 600);
+      for (const n of nodes) {
+        if (n.x === 0 && n.y === 0) { n.x = w * targetX[n.id]; n.y = h0 * targetY[n.id] + n.h / 2; }
+      }
+      sim = d3.forceSimulation(nodes)
+        .force("link", d3.forceLink(links).distance(l => (l.source.w + l.target.w) / 4 + (l.source.h + l.target.h) / 4 + 150).strength(0.4))
+        .force("charge", d3.forceManyBody().strength(-1600))
+        .force("x", d3.forceX(n => W() * targetX[n.id]).strength(n => n.id === "concept" ? 0.18 : 0.06))
+        .force("y", d3.forceY(n => Math.max(window.innerHeight * 0.8, 600) * targetY[n.id] + n.h / 2).strength(0.08))
+        .force("collide", rectCollide())
+        .force("bounds", bounds())
+        .alphaDecay(0.035)
+        .on("tick", tick);
+    }
+
+    // ---------- drawing: each link is a tiny neural net (anchor → 3 hidden nodes → anchor)
+    const gLinks = document.createElementNS(NS, "g"); svg.appendChild(gLinks);
+    const linkEls = links.map(() => {
+      const g = document.createElementNS(NS, "g"); gLinks.appendChild(g);
+      const edges = [], pulses = [], hidden = [];
+      for (let k = 0; k < 2 * HIDDEN; k++) { const e = document.createElementNS(NS, "line"); e.setAttribute("class", "edge"); g.appendChild(e); edges.push(e); }
+      for (let k = 0; k < 2; k++) { const p = document.createElementNS(NS, "polyline"); p.setAttribute("class", "pulse"); p.style.animationDelay = (-k * 1.6 - Math.random()) + "s"; g.appendChild(p); pulses.push(p); }
+      for (let k = 0; k < HIDDEN; k++) { const c = document.createElementNS(NS, "circle"); c.setAttribute("class", "node"); c.setAttribute("r", 3.6); g.appendChild(c); hidden.push(c); }
+      const ends = [0, 1].map(() => { const c = document.createElementNS(NS, "circle"); c.setAttribute("class", "node hot"); c.setAttribute("r", 5); g.appendChild(c); return c; });
+      return { edges, pulses, hidden, ends, via: [Math.floor(Math.random() * HIDDEN), Math.floor(Math.random() * HIDDEN)] };
+    });
+
+    // point where the segment from a's centre towards b's centre leaves a's rectangle
+    function anchor(a, b) {
+      const dx = b.x - a.x, dy = b.y - a.y;
+      if (!dx && !dy) return [a.x, a.y];
+      const tx = Math.abs(dx) > 1e-6 ? (a.w / 2) / Math.abs(dx) : Infinity;
+      const ty = Math.abs(dy) > 1e-6 ? (a.h / 2) / Math.abs(dy) : Infinity;
+      const t = Math.min(tx, ty);
+      return [a.x + dx * t, a.y + dy * t];
+    }
+
+    function tick() {
+      for (const n of nodes) n.el.style.transform = `translate(${n.x - n.w / 2}px, ${n.y - n.h / 2}px)`;
+      links.forEach((l, i) => {
+        const E = linkEls[i];
+        const pa = anchor(l.source, l.target), pb = anchor(l.target, l.source);
+        const mx = (pa[0] + pb[0]) / 2, my = (pa[1] + pb[1]) / 2;
+        let px = -(pb[1] - pa[1]), py = pb[0] - pa[0]; const len = Math.hypot(px, py) || 1; px /= len; py /= len;
+        const spread = Math.min(30, len / 5);
+        const hid = [];
+        for (let k = 0; k < HIDDEN; k++) { const o = (k - (HIDDEN - 1) / 2) * spread; hid.push([mx + px * o, my + py * o]); }
+        hid.forEach((hp, k) => {
+          const e1 = E.edges[k], e2 = E.edges[HIDDEN + k];
+          e1.setAttribute("x1", pa[0]); e1.setAttribute("y1", pa[1]); e1.setAttribute("x2", hp[0]); e1.setAttribute("y2", hp[1]);
+          e2.setAttribute("x1", hp[0]); e2.setAttribute("y1", hp[1]); e2.setAttribute("x2", pb[0]); e2.setAttribute("y2", pb[1]);
+          E.hidden[k].setAttribute("cx", hp[0]); E.hidden[k].setAttribute("cy", hp[1]);
+        });
+        E.pulses.forEach((p, k) => { const h = hid[E.via[k]]; p.setAttribute("points", `${pa[0]},${pa[1]} ${h[0]},${h[1]} ${pb[0]},${pb[1]}`); });
+        E.ends[0].setAttribute("cx", pa[0]); E.ends[0].setAttribute("cy", pa[1]);
+        E.ends[1].setAttribute("cx", pb[0]); E.ends[1].setAttribute("cy", pb[1]);
+      });
+      // the graph grows with its content so the page can scroll
+      const bottom = Math.max(...nodes.map(n => n.y + n.h / 2)) + 24;
+      graph.style.height = Math.max(bottom, window.innerHeight * 0.7) + "px";
+    }
+
+    // ---------- dragging (a click without movement still toggles / follows links)
+    function enableDrag() {
+      const drag = d3.drag()
+        .clickDistance(5)
+        .filter(ev => !ev.button && ev.pointerType !== "touch")
+        .on("start", (ev, n) => { if (!ev.active) sim.alphaTarget(0.25).restart(); n.fx = n.x; n.fy = n.y; n.el.classList.add("dragging"); })
+        .on("drag", (ev, n) => { n.fx = ev.x; n.fy = ev.y; })
+        .on("end", (ev, n) => { if (!ev.active) sim.alphaTarget(0); n.fx = null; n.fy = null; n.el.classList.remove("dragging"); });
+      d3.selectAll(boxes).data(nodes).call(drag);
+    }
+
+    // ---------- re-measure when a box unfolds, and on resize
+    function reflow(strength) {
+      if (!sim) return;
+      measure();
+      sim.force("link").distance(l => (l.source.w + l.target.w) / 4 + (l.source.h + l.target.h) / 4 + 150);
+      sim.alpha(strength).restart();
+    }
+    for (const d of graph.querySelectorAll("details")) {
+      d.addEventListener("toggle", () => { requestAnimationFrame(() => reflow(0.7)); setTimeout(() => reflow(0.4), 350); });
+    }
+    const img = graph.querySelector(".gfig img");
+    if (img) img.addEventListener("load", () => reflow(0.3));
+    let rt; window.addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(() => { if (mq.matches) return teardown(); if (!sim) setup(); else reflow(0.5); }, 150); });
+
+    function setup() {
+      if (mq.matches) return;
+      startSim(); enableDrag();
+    }
+    function teardown() {
+      if (!sim) return;
+      sim.stop(); sim = null;
+      for (const n of nodes) { n.el.style.transform = ""; n.x = n.y = 0; }
+      graph.style.height = "";
+    }
+    document.fonts ? document.fonts.ready.then(setup) : setup();
+  })();
   </script>
 </body>
 </html>
