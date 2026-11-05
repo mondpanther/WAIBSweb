@@ -177,7 +177,7 @@
         <span class="chip on" data-k="firms">Firms</span>
       </div>
       <div class="slider"><label for="alpha">Point opacity</label>
-        <input type="range" id="alpha" min="2" max="100" value="60"><span id="alphaV">60%</span></div>
+        <input type="range" id="alpha" min="1" max="100" value="2"><span id="alphaV">60%</span></div>
       <label class="row" id="soleRow" style="padding:6px 0 0"><input type="checkbox" id="soleBox">
         <span class="nm">Include sole traders <span class="ct" id="soleN"></span></span></label>
     </div>
@@ -286,7 +286,7 @@ let broadOfFine, sectionOfNace;
 const sel = { prod: true, proc: true, firms: true, sole: false, theme: null, country: null, nace: null };  // null = all
 let selected = null;   // {firm, item}
 let colorMode = "theme";
-let alpha = 0.6;            // point opacity (slider)
+let alpha = 0.02;           // point opacity (slider); low so the full 5.9M-point map reads as a density map
 // search: hl = sorted Uint32Array of highlighted point indices (null = no highlight)
 const search = { mode: "i", q: "", hl: null, label: "", seq: 0 };
 const shardCache = new Map();
@@ -320,7 +320,7 @@ function writeHash() {
     const show = ["prod","proc","firms"].filter(k => sel[k]).join(".");
     if (show !== "prod.proc.firms") h.set("show", show || "none");
     if (sel.sole) h.set("st", "1");
-    if (Math.abs(alpha - 0.6) > 0.005) h.set("a", Math.round(alpha * 100));
+    if (Math.abs(alpha - 0.02) > 0.005) h.set("a", Math.round(alpha * 100));
     if (colorMode !== "theme") h.set("col", colorMode);
     if (sel.theme) h.set("th", [...sel.theme].join(","));
     if (sel.country) h.set("c", [...sel.country].join(","));
@@ -607,7 +607,7 @@ function buildFilters() {
     $("side").style.width = Math.max(260, Math.min(innerWidth * 0.6, e.clientX - drag)) + "px"; });
   $("sideGrip").addEventListener("pointerup", () => { drag = null; try { localStorage.setItem("gaiisia-side-w", $("side").style.width); } catch (_) {} });
   try { const w = localStorage.getItem("gaiisia-side-w"); if (w && innerWidth >= 760) $("side").style.width = w; } catch (_) {}
-  const setAlpha = (a, write) => { alpha = Math.max(0.02, Math.min(1, a)); $("alpha").value = Math.round(alpha * 100);
+  const setAlpha = (a, write) => { alpha = Math.max(0.01, Math.min(1, a)); $("alpha").value = Math.round(alpha * 100);
     $("alphaV").textContent = Math.round(alpha * 100) + "%"; render(); if (write) writeHash(); };
   $("alpha").addEventListener("input", e => setAlpha(e.target.value / 100, true));
   setAlpha(alpha, false);
@@ -680,7 +680,7 @@ function applyHash() {
   viewState = Object.assign(initialView(), h.view || {});
   if (h.show) { const s = h.show.split("."); sel.prod = s.includes("prod"); sel.proc = s.includes("proc"); sel.firms = s.includes("firms"); }
   sel.theme = h.theme; sel.country = h.country; sel.nace = h.nace; sel.sole = h.sole;
-  if (h.alpha != null && Number.isFinite(h.alpha)) alpha = Math.max(0.02, Math.min(1, h.alpha));
+  if (h.alpha != null && Number.isFinite(h.alpha)) alpha = Math.max(0.01, Math.min(1, h.alpha));
   if (["theme", "region", "country", "type"].includes(h.color) || (meta.attrs && ["score", "green", "labor"].includes(h.color))) colorMode = h.color;
   pendingFirm = h.firm; pendingSearch = h.q ? { q: h.q, mode: h.qm === "f" ? "f" : "i" } : null;
   syncChecks();
