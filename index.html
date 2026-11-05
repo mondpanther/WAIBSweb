@@ -122,6 +122,10 @@
     }
     .gaiis p.paper-link a:hover { background: rgba(47, 224, 224, 0.1); }
     .gaiis p { line-height: 1.6; margin: 0 0 14px; font-size: 15.5px; }
+    .gfig { margin: 4px 0 18px; }
+    .gfig img { display: block; width: 100%; height: auto; border-radius: 10px; border: 1px solid var(--box-border); }
+    .gfig figcaption { color: var(--muted); font-size: 13px; line-height: 1.5; margin-top: 8px; }
+    .gfig figcaption a { color: var(--cyan); }
     .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 18px 0; }
     .stat { border-top: 2px solid var(--cyan); padding-top: 8px; }
     .stat b { display: block; font: 700 24px/1.1 Montserrat, sans-serif; color: #fff; }
@@ -161,7 +165,7 @@
     <details class="box gaiis" id="gaiis">
       <summary>
         <div class="summary-text">
-          <p class="label">First application</p>
+          <p class="label">Surveys</p>
           <h2>Global AI Innovation Survey <span>GAIIS</span></h2>
           <p class="hint">Click to read more</p>
         </div>
@@ -201,6 +205,18 @@
           <li>Labor-augmenting innovation is about 3× as common as labor-saving for products, 2× for processes.</li>
           <li>Countries with greener innovation also tilt more towards labor-augmenting innovation.</li>
         </ul>
+
+        <figure class="gfig">
+          <a href="GAIISia/#col=labor&amp;a=2" title="Open this view in the atlas">
+            <img src="assets/gaiisia_labor_map.png" alt="Map of 5.9 million innovations, coloured by labor effect: blue labor-augmenting, red labor-saving" loading="lazy" />
+          </a>
+          <figcaption>
+            All 5.9M innovations placed by the meaning of their description and coloured by labor effect:
+            blue = labor-augmenting (3.2M), red = labor-saving (1.1M), grey = unclear. Labor-augmenting
+            innovation dominates everywhere; labor-saving innovation clusters in a few pockets such as CNC/CAM
+            fabrication, payments automation and ERP. <a href="GAIISia/#col=labor&amp;a=2">Explore in GAIISia &rarr;</a>
+          </figcaption>
+        </figure>
 
         <p style="margin:0">
           Paper: <a href="https://cep.lse.ac.uk/_NEW/PUBLICATIONS/abstract.asp?index=12572" target="_blank" rel="noopener">CEP Discussion Paper</a> &middot; Data for researchers: <a href="https://huggingface.co/datasets/mondpanther/gaiis-innobase" target="_blank" rel="noopener">GAIIS innobase on Hugging Face</a> (gated; request access with your name and affiliation).
