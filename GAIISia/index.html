@@ -5,6 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>GAIISia · GAIIS Innovation Atlas</title>
 <meta name="description" content="Map of ~5.9 million firm innovations from the Global AI Innovation Survey (GAIIS), positioned by their text embeddings." />
+  <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon/favicon-32.png" />
+  <link rel="icon" type="image/png" sizes="16x16" href="../assets/favicon/favicon-16.png" />
+  <link rel="icon" href="../assets/favicon/favicon.ico" sizes="any" />
+  <link rel="apple-touch-icon" sizes="180x180" href="../assets/favicon/apple-touch-icon.png" />
+  <meta name="theme-color" content="#001522" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
@@ -1063,7 +1068,8 @@ deckgl = new deck.Deck({
   layers: [], pickingRadius: 4,
   onViewStateChange: ({ viewState: v }) => {
     const zChanged = Math.abs(v.zoom - viewState.zoom) > 0.02;
-    viewState = v; writeHash(); if (zChanged) render(); return v;
+    const moved = zChanged || Math.hypot(v.target[0] - viewState.target[0], v.target[1] - viewState.target[1]) * Math.pow(2, v.zoom) > 40;
+    viewState = v; writeHash(); if (moved) render(); return v;
   },
   onHover,
   getCursor: ({ isHovering, isDragging }) => isDragging ? "grabbing" : isHovering ? "pointer" : "grab"
