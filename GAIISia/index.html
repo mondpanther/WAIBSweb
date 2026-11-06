@@ -724,7 +724,7 @@ function layers() {
     radiusUnits: "pixels", getRadius: Math.min(3, ptRadius * 1.1 + 0.4),
     filled: true, stroked: true, getLineColor: [255, 255, 255, 120],
     getFillColor: [255, 255, 255, 90],
-    lineWidthUnits: "pixels", getLineWidth: 0.5, pickable: true, visible: zoom > z0 + 1.2,
+    lineWidthUnits: "pixels", getLineWidth: 0.5, pickable: true,
     // firms follow the opacity slider (a little stronger than points so they stay findable), fade under a search highlight
     opacity: search.hl ? 0.15 : Math.min(1, alpha * 3),
     extensions: [new deck.DataFilterExtension({ filterSize: 1 })], filterRange: [0.5, 1.5],
