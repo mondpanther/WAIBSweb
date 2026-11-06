@@ -2,14 +2,6 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-  <!-- Google Analytics (GA4) -->
-  <script async src="https://www.googletagmanager.com/gtag/js?id=G-EZ3GQGSNWL"></script>
-  <script>
-    window.dataLayer = window.dataLayer || [];
-    function gtag(){dataLayer.push(arguments);}
-    gtag('js', new Date());
-    gtag('config', 'G-EZ3GQGSNWL');
-  </script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>GAIISia · GAIIS Innovation Atlas</title>
 <meta name="description" content="Map of ~5.9 million firm innovations from the Global AI Innovation Survey (GAIIS), positioned by their text embeddings." />
@@ -182,7 +174,7 @@
       <div class="chips" id="showChips">
         <span class="chip on" data-k="prod">Products</span>
         <span class="chip on" data-k="proc">Processes</span>
-        <span class="chip on" data-k="firms">Firms</span>
+        <span class="chip" data-k="firms">Firms</span>
       </div>
       <div class="slider"><label for="alpha">Point opacity</label>
         <input type="range" id="alpha" min="1" max="100" value="2"><span id="alphaV">60%</span></div>
@@ -255,7 +247,7 @@ const NACE_SECTIONS = {
 // 20 distinct colours that read well on a dark background
 const PALETTE = ["#4cc9f0","#f72585","#b5e48c","#ffb703","#9d4edd","#06d6a0","#ff7b54","#4895ef","#e9c46a","#ef476f",
   "#80ffdb","#c77dff","#f4a261","#90be6d","#00b4d8","#ff9ebb","#ffd166","#43aa8b","#a0c4ff","#f94144",
-  "#caffbf","#bdb2ff","#fdffb6","#9bf6ff"];
+  "#caffbf","#bdb2ff","#fdffb6","#9bf6ff","#ff8fab","#52b788","#f7b267","#7fd8ff","#e0aaff","#d4e157"];
 // HQ regions (sampling-frame country of the firm)
 const REGIONS = [
   ["Western Europe", "#4cc9f0", "AT BE CH DE FR GB IE LU NL"],
@@ -291,7 +283,7 @@ let pos, col, fine, typ, firmOf, vis;            // per point
 let fpos, fcount, fstart, fcountry, fnace, fbroad, fvis;   // per firm
 let pgreen, plabor, fsp, fsc, fgreen, fnet, fcol, fsole;           // attributes (optional file per chunk)
 let broadOfFine, sectionOfNace;
-const sel = { prod: true, proc: true, firms: true, sole: false, theme: null, country: null, nace: null };  // null = all
+const sel = { prod: true, proc: true, firms: false, sole: false, theme: null, country: null, nace: null };  // null = all
 let selected = null;   // {firm, item}
 let colorMode = "theme";
 let alpha = 0.02;           // point opacity (slider); low so the full 5.9M-point map reads as a density map
@@ -326,7 +318,7 @@ function writeHash() {
     const h = new URLSearchParams();
     if (viewState) h.set("v", [viewState.target[0].toFixed(1), viewState.target[1].toFixed(1), viewState.zoom.toFixed(2)].join(","));
     const show = ["prod","proc","firms"].filter(k => sel[k]).join(".");
-    if (show !== "prod.proc.firms") h.set("show", show || "none");
+    if (show !== "prod.proc") h.set("show", show || "none");
     if (sel.sole) h.set("st", "1");
     if (Math.abs(alpha - 0.02) > 0.005) h.set("a", Math.round(alpha * 100));
     if (colorMode !== "theme") h.set("col", colorMode);
@@ -725,7 +717,6 @@ function layers() {
     filled: true, stroked: true, getLineColor: [255, 255, 255, 120],
     getFillColor: [255, 255, 255, 90],
     lineWidthUnits: "pixels", getLineWidth: 0.5, pickable: true,
-    // firms follow the opacity slider (a little stronger than points so they stay findable), fade under a search highlight
     opacity: search.hl ? 0.15 : Math.min(1, alpha * 3),
     extensions: [new deck.DataFilterExtension({ filterSize: 1 })], filterRange: [0.5, 1.5],
     updateTriggers: { getRadius: ptRadius }
