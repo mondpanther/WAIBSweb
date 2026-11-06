@@ -721,10 +721,12 @@ function layers() {
     id: "firms",
     data: { length: loadedFirms, attributes: { getPosition: { value: fpos, size: 2 }, getFilterValue: { value: fvis, size: 1 },
       ...(colorMode === "theme" || colorMode === "type" ? {} : { getFillColor: { value: fcol, size: 4, normalized: true } }) } },
-    radiusUnits: "pixels", getRadius: Math.min(4, ptRadius * 1.4 + 0.5),
-    filled: true, stroked: true, getLineColor: [255, 255, 255, 80],
-    getFillColor: [255, 255, 255, 55],
-    lineWidthUnits: "pixels", getLineWidth: 0.6, pickable: true, visible: zoom > z0 + 1.2, opacity: search.hl ? 0.15 : 1,
+    radiusUnits: "pixels", getRadius: Math.min(3, ptRadius * 1.1 + 0.4),
+    filled: true, stroked: true, getLineColor: [255, 255, 255, 120],
+    getFillColor: [255, 255, 255, 90],
+    lineWidthUnits: "pixels", getLineWidth: 0.5, pickable: true, visible: zoom > z0 + 1.2,
+    // firms follow the opacity slider (a little stronger than points so they stay findable), fade under a search highlight
+    opacity: search.hl ? 0.15 : Math.min(1, alpha * 3),
     extensions: [new deck.DataFilterExtension({ filterSize: 1 })], filterRange: [0.5, 1.5],
     updateTriggers: { getRadius: ptRadius }
   }));
