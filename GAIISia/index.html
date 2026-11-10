@@ -170,7 +170,8 @@
   </div>
   <div id="filters">
     <div class="sec">
-      <div class="sec-h"><b>Show</b></div>
+      <div class="sec-h"><b>Show</b><span class="chips smode" id="dimChips" style="display:none;margin:0">
+        <span class="chip on" data-d="2">2D</span><span class="chip" data-d="3">3D</span></span></div>
       <div class="chips" id="showChips">
         <span class="chip on" data-k="prod">Products</span>
         <span class="chip on" data-k="proc">Processes</span>
@@ -180,6 +181,8 @@
         <input type="range" id="alpha" min="1" max="100" value="2"><span id="alphaV">60%</span></div>
       <label class="row" id="soleRow" style="padding:6px 0 0"><input type="checkbox" id="soleBox">
         <span class="nm">Include sole traders <span class="ct" id="soleN"></span></span></label>
+      <label class="row" id="rotRow" style="padding:4px 0 0;display:none"><input type="checkbox" id="rotBox" checked>
+        <span class="nm">Rotate slowly when idle</span></label>
     </div>
     <div class="sec">
       <div class="sec-h"><b>Colour by</b></div>
@@ -295,6 +298,9 @@ let regionRGB, regionOfCountry, countryRGB;
 let hoverFirm = -1;
 const textCache = new Map();
 let deckgl, viewState;
+// 3D layout (optional c{k}_xyz.bin tiles, fetched the first time 3D is switched on)
+let dim = 2, pos3, fpos3, loaded3Pts = 0, loaded3Firms = 0, load3Started = false, note3 = "", statBase = "";
+let viewState2 = null, viewState3 = null, rotOn = true, lastInteract = 0;
 
 const $ = id => document.getElementById(id);
 const fmt = n => n.toLocaleString("en-GB");
@@ -304,9 +310,12 @@ function fail(msg) { const e = $("err"); e.textContent = msg; e.style.display = 
 function readHash() {
   const h = new URLSearchParams(location.hash.slice(1));
   const set = k => h.has(k) ? new Set(h.get(k).split(",").filter(Boolean)) : null;
-  const v = (h.get("v") || "").split(",").map(Number);
+  const v = (h.get("v") || "").split(",").map(Number), v3 = (h.get("v3") || "").split(",").map(Number);
   return {
     view: v.length === 3 && v.every(Number.isFinite) ? { target: [v[0], v[1], 0], zoom: v[2] } : null,
+    view3: v3.length === 6 && v3.every(Number.isFinite)
+      ? { target: [v3[0], v3[1], v3[2]], zoom: v3[3], rotationX: v3[4], rotationOrbit: v3[5] } : null,
+    dim: h.get("d") === "3" ? 3 : 2, rot: h.get("r") !== "0",
     show: h.get("show"), sole: h.get("st") === "1", alpha: h.has("a") ? +h.get("a") / 100 : null, color: h.get("col"), theme: set("th"), country: set("c"), nace: set("n"),
     firm: h.has("f") ? +h.get("f") : null, q: h.get("q"), qm: h.get("qm")
   };
@@ -316,7 +325,12 @@ function writeHash() {
   clearTimeout(hashTimer);
   hashTimer = setTimeout(() => {
     const h = new URLSearchParams();
-    if (viewState) h.set("v", [viewState.target[0].toFixed(1), viewState.target[1].toFixed(1), viewState.zoom.toFixed(2)].join(","));
+    const v2 = dim === 3 ? viewState2 : viewState, v3 = dim === 3 ? viewState : viewState3;
+    if (v2) h.set("v", [v2.target[0].toFixed(1), v2.target[1].toFixed(1), v2.zoom.toFixed(2)].join(","));
+    if (dim === 3) h.set("d", "3");
+    if (v3 && dim === 3) h.set("v3", [v3.target[0].toFixed(1), v3.target[1].toFixed(1), v3.target[2].toFixed(1), v3.zoom.toFixed(2),
+      v3.rotationX.toFixed(1), v3.rotationOrbit.toFixed(1)].join(","));
+    if (!rotOn) h.set("r", "0");
     const show = ["prod","proc","firms"].filter(k => sel[k]).join(".");
     if (show !== "prod.proc") h.set("show", show || "none");
     if (sel.sole) h.set("st", "1");
@@ -360,7 +374,41 @@ function allocate() {
   fgreen = new Uint8Array(NF).fill(255); fnet = new Int8Array(NF).fill(-128); fcol = new Uint8Array(NF * 4).fill(255); fsole = new Uint8Array(NF);
   broadOfFine = Uint8Array.from(meta.themes.fine.map(t => t.broad));
   sectionOfNace = meta.nace2.map(n => n.section);
+  if (meta.has_3d) { pos3 = new Float32Array(N * 3); fpos3 = new Float32Array(NF * 3); }
 }
+
+// ---- 3D coordinates: loaded on demand, chunk order as the 2D tiles
+function ingest3(ch, ab) {
+  const np = ch.npts, nf = ch.nfirms, p0 = ch.pt0, f0 = ch.firm0, s = WORLD / 65535;
+  const a = new Uint16Array(ab, 0, np * 3), b = new Uint16Array(ab, np * 6, nf * 3);
+  for (let k = 0; k < np * 3; k++) pos3[p0 * 3 + k] = a[k] * s;
+  for (let k = 0; k < nf * 3; k++) fpos3[f0 * 3 + k] = b[k] * s;
+  loaded3Pts = p0 + np; loaded3Firms = f0 + nf;
+}
+async function load3d() {
+  if (load3Started || !meta.has_3d) return;
+  load3Started = true;
+  const total = meta.chunks.length, results = new Array(total); let next = 0, done = 0;
+  const pumps = Array.from({ length: 3 }, async () => {
+    while (next < total) { const k = next++;
+      try { results[k] = await getBin(`c${k}_xyz.bin`); } catch (e) { fail("Loading the 3D layout failed: " + e.message); throw e; } }
+  });
+  for (let k = 0; k < total; k++) {
+    while (!results[k]) await new Promise(r => setTimeout(r, 30));
+    ingest3(meta.chunks[k], results[k]); results[k] = 1; done++;
+    note3 = done < total ? ` · 3D layout ${Math.round(100 * done / total)}%` : "";
+    $("statTxt").innerHTML = statBase + note3;
+    if (dim === 3) { hlDirty = true; render(); }
+  }
+  await Promise.all(pumps);
+}
+const n3Pts = () => Math.min(loadedPts, loaded3Pts), n3Firms = () => Math.min(loadedFirms, loaded3Firms);
+// world position of point i / firm f in the current mode
+const P = i => dim === 3 ? [pos3[3*i], pos3[3*i+1], pos3[3*i+2]] : [pos[2*i], pos[2*i+1]];
+const FP = f => dim === 3 ? [fpos3[3*f], fpos3[3*f+1], fpos3[3*f+2]] : [fpos[2*f], fpos[2*f+1]];
+const themePos = d => dim === 3 && d.p3 ? [d.p3[0] * WORLD, d.p3[1] * WORLD, d.p3[2] * WORLD] : [d.x * WORLD, WORLD - d.y * WORLD];
+// in 3D the point cloud is drawn without depth testing so that low-opacity points blend into a density cloud
+const cloudParams = () => dim === 3 ? { depthWriteEnabled: false, depthCompare: "always" } : {};
 
 function ingestAttr(ch, ab) {
   if (!ab) return;
@@ -503,6 +551,7 @@ async function load() {
     catch (e2) { return fail("Could not load the atlas data. " + e.message); }
   }
   allocate(); setupColours(); buildFilters(); applyHash(); $("alpha").value = Math.round(alpha * 100); $("alphaV").textContent = Math.round(alpha * 100) + "%"; recolour(); deckgl.setProps({ initialViewState: viewState }); render();
+  if (meta.has_3d) { $("dimChips").style.display = ""; if (pendingDim === 3) setDim(3, false); }
   const total = meta.chunks.length;
   // fetch chunks with limited parallelism, ingest in order
   const pending = meta.chunks.map((ch, k) => () => Promise.all([getBin(`c${k}_pts.bin`), getBin(`c${k}_firms.bin`),
@@ -591,6 +640,8 @@ function buildFilters() {
   if (hasSole && meta.names_withheld) $("soleN").textContent = fmtShort(meta.names_withheld.n_firms) + " firms";
   $("soleBox").addEventListener("change", e => { sel.sole = e.target.checked; recomputeVisibility(); render(); writeHash();
     if (search.hl && search.mode === "i") setHighlight(search.hl, search.label); });
+  $("dimChips").addEventListener("click", e => { const c = e.target.closest(".chip"); if (c) setDim(+c.dataset.d); });
+  $("rotBox").addEventListener("change", e => { rotOn = e.target.checked; writeHash(); });
   // tooltip with the full theme description
   const tt = $("ttip");
   $("filters").addEventListener("mouseover", e => {
@@ -650,8 +701,9 @@ function recomputeVisibility() {
   }
   nVisPts = vp; nVisFirms = vf; hlDirty = true;
   vis = vis.slice(); fvis = fvis.slice();     // new identity -> deck re-uploads the attribute
-  $("statTxt").innerHTML = `<b>${fmt(vp)}</b> innovations · <b>${fmt(vf)}</b> firms shown`
+  statBase = `<b>${fmt(vp)}</b> innovations · <b>${fmt(vf)}</b> firms shown`
     + (loadedPts < N ? ` · loading ${Math.round(100 * loadedPts / N)}%` : ` of ${fmt(N)} / ${fmt(NF)}`);
+  $("statTxt").innerHTML = statBase + note3;
 }
 
 // ------------------------------------------------------------------ texts
@@ -674,10 +726,34 @@ function initialView() {
   const m = Math.min(innerWidth, innerHeight);
   return { target: [WORLD / 2, WORLD / 2, 0], zoom: Math.log2(m / WORLD) - 0.05, minZoom: -2, maxZoom: 14 };
 }
-let pendingFirm = null, pendingSearch = null;
+function initialView3() {
+  const m = Math.min(innerWidth, innerHeight);
+  return { target: [WORLD / 2, WORLD / 2, WORLD / 2], zoom: Math.log2(m / WORLD) - 0.55, rotationX: 22, rotationOrbit: -30,
+    minZoom: -3, maxZoom: 12 };
+}
+function makeView() {
+  return dim === 3 ? new deck.OrbitView({ id: "o3", orbitAxis: "Y", fovy: 35 }) : new deck.OrthographicView({ id: "o", flipY: false });
+}
+const HELP = { 2: "Scroll to zoom · drag to pan · hover for details · click a point or firm to see its links",
+               3: "Drag to rotate · right-drag or shift+drag to pan · scroll to zoom · click a point or firm to see its links" };
+function setDim(d, write = true) {
+  if (d === 3 && !(meta && meta.has_3d)) d = 2;
+  if (d === dim) return;
+  if (d === 3) { viewState2 = viewState; viewState = viewState3 || initialView3(); load3d(); }
+  else { viewState3 = viewState; viewState = viewState2 || initialView(); }
+  dim = d; hlDirty = true; hlData = null; lastInteract = performance.now();
+  deckgl.setProps({ views: makeView(), initialViewState: viewState });
+  for (const c of $("dimChips").children) c.classList.toggle("on", +c.dataset.d === dim);
+  $("rotRow").style.display = dim === 3 ? "" : "none";
+  $("help").textContent = HELP[dim];
+  render(); if (write) writeHash();
+}
+let pendingFirm = null, pendingSearch = null, pendingDim = 2;
 function applyHash() {
   const h = readHash();
   viewState = Object.assign(initialView(), h.view || {});
+  if (h.view3) viewState3 = Object.assign(initialView3(), h.view3);
+  pendingDim = h.dim; rotOn = h.rot; $("rotBox").checked = rotOn;
   if (h.show) { const s = h.show.split("."); sel.prod = s.includes("prod"); sel.proc = s.includes("proc"); sel.firms = s.includes("firms"); }
   sel.theme = h.theme; sel.country = h.country; sel.nace = h.nace; sel.sole = h.sole;
   if (h.alpha != null && Number.isFinite(h.alpha)) alpha = Math.max(0.01, Math.min(1, h.alpha));
@@ -690,33 +766,34 @@ function restoreSelection() {
 }
 
 function layers() {
-  const zoom = viewState.zoom, z0 = initialView().zoom;
+  const zoom = viewState.zoom, z0 = (dim === 3 ? initialView3() : initialView()).zoom;
   const ptRadius = Math.min(3.2, 0.9 * Math.pow(1.35, zoom - z0));
+  const d3 = dim === 3, psize = d3 ? 3 : 2, params = cloudParams();
   const L = [];
   L.push(new deck.ScatterplotLayer({
-    id: "pts",
-    data: { length: loadedPts, attributes: {
-      getPosition: { value: pos, size: 2 }, getFillColor: { value: search.hl ? fadedColours() : col, size: 4, normalized: true },
+    id: "pts" + dim,
+    data: { length: d3 ? n3Pts() : loadedPts, attributes: {
+      getPosition: { value: d3 ? pos3 : pos, size: psize }, getFillColor: { value: search.hl ? fadedColours() : col, size: 4, normalized: true },
       getFilterValue: { value: vis, size: 1 } } },
     radiusUnits: "pixels", getRadius: ptRadius, stroked: false, pickable: true,
-    opacity: search.hl ? 1 : alpha,
+    opacity: search.hl ? 1 : alpha, parameters: params,
     extensions: [new deck.DataFilterExtension({ filterSize: 1 })], filterRange: [0.5, 1.5],
     updateTriggers: { getRadius: ptRadius }
   }));
   if (search.hl) L.push(new deck.ScatterplotLayer({
-    id: "hl", data: hlLayerData(), radiusUnits: "pixels", getRadius: Math.max(3, ptRadius * 1.6), stroked: true,
-    getLineColor: [255, 255, 255, 160], lineWidthUnits: "pixels", getLineWidth: 0.6, pickable: true,
+    id: "hl" + dim, data: hlLayerData(), radiusUnits: "pixels", getRadius: Math.max(3, ptRadius * 1.6), stroked: true,
+    getLineColor: [255, 255, 255, 160], lineWidthUnits: "pixels", getLineWidth: 0.6, pickable: true, parameters: params,
     extensions: [new deck.DataFilterExtension({ filterSize: 1 })], filterRange: [0.5, 1.5],
     updateTriggers: { getRadius: ptRadius }
   }));
   if (sel.firms) L.push(new deck.ScatterplotLayer({
-    id: "firms",
-    data: { length: loadedFirms, attributes: { getPosition: { value: fpos, size: 2 }, getFilterValue: { value: fvis, size: 1 },
+    id: "firms" + dim,
+    data: { length: d3 ? n3Firms() : loadedFirms, attributes: { getPosition: { value: d3 ? fpos3 : fpos, size: psize }, getFilterValue: { value: fvis, size: 1 },
       ...(colorMode === "theme" || colorMode === "type" ? {} : { getFillColor: { value: fcol, size: 4, normalized: true } }) } },
     radiusUnits: "pixels", getRadius: Math.min(3, ptRadius * 1.1 + 0.4),
     filled: true, stroked: true, getLineColor: [255, 255, 255, 120],
     getFillColor: [255, 255, 255, 90],
-    lineWidthUnits: "pixels", getLineWidth: 0.5, pickable: true,
+    lineWidthUnits: "pixels", getLineWidth: 0.5, pickable: true, parameters: params,
     opacity: search.hl ? 0.15 : Math.min(1, alpha * 3),
     extensions: [new deck.DataFilterExtension({ filterSize: 1 })], filterRange: [0.5, 1.5],
     updateTriggers: { getRadius: ptRadius }
@@ -727,12 +804,14 @@ function layers() {
   if (hoverFirm >= 0 && (!selected || hoverFirm !== selected.firm)) linkFirms.push([hoverFirm, 130]);
   const links = [], marks = [];
   for (const [f, a] of linkFirms) {
+    if (d3 && f >= n3Firms()) continue;
+    const fp = FP(f);
     for (let i = fstart[f]; i < fstart[f + 1]; i++) {
       const pc = rgbOfPoint(i);
-      links.push({ s: [fpos[2*f], fpos[2*f+1]], t: [pos[2*i], pos[2*i+1]], a, c: pc });
-      marks.push({ p: [pos[2*i], pos[2*i+1]], i, c: pc, on: selected && selected.item === i });
+      links.push({ s: fp, t: P(i), a, c: pc });
+      marks.push({ p: P(i), i, c: pc, on: selected && selected.item === i });
     }
-    marks.push({ p: [fpos[2*f], fpos[2*f+1]], firm: true });
+    marks.push({ p: fp, firm: true });
   }
   if (links.length) {
     L.push(new deck.LineLayer({ id: "links", data: links, getSourcePosition: d => d.s, getTargetPosition: d => d.t,
@@ -763,28 +842,29 @@ function layers() {
 }
 // Greedy label placement in screen space: bigger themes first; a label that would overlap one already
 // placed is shifted below (then above) its anchor, and dropped if it still collides.
+// In 3D (billboarded labels at the theme centroid) a colliding label is simply dropped.
 let labelCtx = null;
 function placeLabels(items, fontPx) {
   let vp = null;
   try { vp = deckgl && deckgl.viewManager ? deckgl.getViewports()[0] : null; } catch (_) { vp = null; }
-  if (!vp) return items.map(d => ({ ...d, pos: [d.x * WORLD, WORLD - d.y * WORLD] }));
+  if (!vp) return items.map(d => ({ ...d, pos: themePos(d) }));
   if (!labelCtx) { labelCtx = document.createElement("canvas").getContext("2d"); }
   labelCtx.font = `600 ${fontPx}px Inter, sans-serif`;
-  const placed = [], out = [], pad = 4, lineH = fontPx * 1.3, scale = Math.pow(2, vp.zoom);
+  const placed = [], out = [], pad = 4, lineH = fontPx * 1.3, d3 = dim === 3;
   const sorted = [...items].sort((a, b) => b.n - a.n);
   for (const d of sorted) {
-    const w = labelCtx.measureText(d.name).width + 2 * pad, h = lineH;
-    const [sx, sy] = vp.project([d.x * WORLD, WORLD - d.y * WORLD]);
+    const w = labelCtx.measureText(d.name).width + 2 * pad, h = lineH, wp = themePos(d);
+    const [sx, sy] = vp.project(wp);
     let ok = false, dy = 0;
-    for (const off of [0, h, -h, 2 * h, -2 * h]) {
+    for (const off of d3 ? [0] : [0, h, -h, 2 * h, -2 * h]) {
       const x0 = sx - w / 2, y0 = sy + off - h / 2;
       if (x0 < -w || y0 < -h || x0 > vp.width + w || y0 > vp.height + h) { ok = true; dy = off; break; }   // off-screen: no conflict
       if (!placed.some(p => x0 < p.x1 && x0 + w > p.x0 && y0 < p.y1 && y0 + h > p.y0)) { ok = true; dy = off; break; }
     }
     if (!ok) continue;
-    const [px, py] = sx !== undefined ? vp.unproject([sx, sy + dy]) : [d.x * WORLD, WORLD - d.y * WORLD];
+    const ps = d3 || sx === undefined ? wp : vp.unproject([sx, sy + dy]).slice(0, 2);
     placed.push({ x0: sx - w / 2, x1: sx + w / 2, y0: sy + dy - h / 2, y1: sy + dy + h / 2 });
-    out.push({ ...d, pos: [px, py] });
+    out.push({ ...d, pos: ps });
   }
   return out;
 }
@@ -798,12 +878,12 @@ function onHover(info) {
   let newHover = -1;
   if (!layer || index < 0) { tip.style.display = "none"; }
   else {
-    const token = ++tipToken;
+    const token = ++tipToken, lid = layer.id.replace(/[23]$/, "");
     let firm, item = null;
-    if (layer.id === "hl") { const i = hlIndex(index); if (i < 0) return; item = i; firm = firmOf[i]; }
-    else if (layer.id === "pts") { item = index; firm = firmOf[index]; }
-    else if (layer.id === "firms") { firm = index; newHover = index; }
-    else if (layer.id === "marks") { const d = info.object; if (d.firm) return; item = d.i; firm = firmOf[d.i]; }
+    if (lid === "hl") { const i = hlIndex(index); if (i < 0) return; item = i; firm = firmOf[i]; }
+    else if (lid === "pts") { item = index; firm = firmOf[index]; }
+    else if (lid === "firms") { firm = index; newHover = index; }
+    else if (lid === "marks") { const d = info.object; if (d.firm) return; item = d.i; firm = firmOf[d.i]; }
     else return;
     tip.style.display = "block"; tip.style.left = Math.min(x + 14, innerWidth - 330) + "px"; tip.style.top = (y + 14) + "px";
     const cname = meta.countries[fcountry[firm]].name, sec = meta.has_nace === false ? "" : ` · NACE ${sectionOfNace[fnace[firm]]}`;
@@ -825,10 +905,11 @@ function onHover(info) {
 function onClick(info) {
   const { layer, index } = info;
   if (!layer || index < 0) { clearSelection(); return; }
-  if (layer.id === "hl") { const i = hlIndex(index); if (i >= 0) selectFirm(firmOf[i], i); }
-  else if (layer.id === "pts") selectFirm(firmOf[index], index);
-  else if (layer.id === "firms") selectFirm(index, null);
-  else if (layer.id === "marks") { const d = info.object; if (!d.firm) selectFirm(firmOf[d.i], d.i); }
+  const lid = layer.id.replace(/[23]$/, "");
+  if (lid === "hl") { const i = hlIndex(index); if (i >= 0) selectFirm(firmOf[i], i); }
+  else if (lid === "pts") selectFirm(firmOf[index], index);
+  else if (lid === "firms") selectFirm(index, null);
+  else if (lid === "marks") { const d = info.object; if (!d.firm) selectFirm(firmOf[d.i], d.i); }
 }
 function scoreTile(v, label) {
   if (v === -32768) return `<div class="ftile na"><b>n/a</b><small>${label}</small></div>`;
@@ -841,8 +922,8 @@ function scoreText(f) {
   return ` · score prod ${z(fsp[f])} / proc ${z(fsc[f])}`;
 }
 function hlIndex(k) {   // k-th drawn highlight point -> global point index
-  let n = 0; const a = search.hl;
-  for (let j = 0; j < a.length; j++) if (a[j] < loadedPts) { if (n === k) return a[j]; n++; }
+  let n = 0; const a = search.hl, lim = dim === 3 ? n3Pts() : loadedPts;
+  for (let j = 0; j < a.length; j++) if (a[j] < lim) { if (n === k) return a[j]; n++; }
   return -1;
 }
 function clearSelection() { selected = null; $("detail").classList.remove("show"); render(); writeHash(); }
@@ -885,11 +966,14 @@ async function selectFirm(f, item, fly = false) {
     box.appendChild(el);
   });
   if (item != null) box.querySelector(".inno.sel")?.scrollIntoView({ block: "nearest" });
-  if (fly) flyTo(fpos[2*f], fpos[2*f+1]);
+  if (fly) flyToFirm(f);
 }
-function flyTo(x, y) {
-  viewState = Object.assign({}, viewState, { target: [x, y, 0], zoom: Math.max(viewState.zoom, initialView().zoom + 3),
+function flyToFirm(f) {
+  if (dim === 3 && f >= n3Firms()) return;
+  const t = dim === 3 ? FP(f) : [fpos[2*f], fpos[2*f+1], 0];
+  viewState = Object.assign({}, viewState, { target: t, zoom: Math.max(viewState.zoom, (dim === 3 ? initialView3() : initialView()).zoom + 3),
     transitionDuration: 600 });
+  lastInteract = performance.now();
   deckgl.setProps({ initialViewState: viewState });
 }
 $("close").addEventListener("click", clearSelection);
@@ -1045,15 +1129,16 @@ function fadedColours() {   // same colours, nearly transparent: the background 
 }
 function hlLayerData() {
   if (!hlDirty && hlData) return hlData;
-  const a = search.hl, n = a.length;
-  const p = new Float32Array(n * 2), c = new Uint8Array(n * 4), fv = new Float32Array(n); let k = 0;
+  const a = search.hl, n = a.length, d3 = dim === 3, ps = d3 ? 3 : 2, lim = d3 ? n3Pts() : loadedPts;
+  const p = new Float32Array(n * ps), c = new Uint8Array(n * 4), fv = new Float32Array(n); let k = 0;
   for (let j = 0; j < n; j++) {
-    const i = a[j]; if (i >= loadedPts) continue;
-    p[2*k] = pos[2*i]; p[2*k+1] = pos[2*i+1];
+    const i = a[j]; if (i >= lim) continue;
+    if (d3) { p[3*k] = pos3[3*i]; p[3*k+1] = pos3[3*i+1]; p[3*k+2] = pos3[3*i+2]; }
+    else { p[2*k] = pos[2*i]; p[2*k+1] = pos[2*i+1]; }
     c[4*k] = col[4*i]; c[4*k+1] = col[4*i+1]; c[4*k+2] = col[4*i+2]; c[4*k+3] = 235; fv[k] = vis[i]; k++;
   }
   hlDirty = false;
-  return hlData = { length: k, attributes: { getPosition: { value: p, size: 2 }, getFillColor: { value: c, size: 4, normalized: true },
+  return hlData = { length: k, attributes: { getPosition: { value: p, size: ps }, getFillColor: { value: c, size: 4, normalized: true },
     getFilterValue: { value: fv, size: 1 } } };
 }
 
@@ -1064,13 +1149,16 @@ function fmtShort(n) { return n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ?
 // ------------------------------------------------------------------ boot
 viewState = initialView();
 deckgl = new deck.Deck({
-  parent: $("map"), views: new deck.OrthographicView({ id: "o", flipY: false }),
+  parent: $("map"), views: makeView(),
   initialViewState: viewState, controller: { inertia: true, scrollZoom: { speed: 0.02, smooth: true } },
   layers: [], pickingRadius: 4,
   onViewStateChange: ({ viewState: v }) => {
     const zChanged = Math.abs(v.zoom - viewState.zoom) > 0.02;
-    const moved = zChanged || Math.hypot(v.target[0] - viewState.target[0], v.target[1] - viewState.target[1]) * Math.pow(2, v.zoom) > 40;
-    viewState = v; writeHash(); if (moved) render(); return v;
+    const turned = dim === 3 && (Math.abs((v.rotationOrbit || 0) - (viewState.rotationOrbit || 0)) > 1.5
+      || Math.abs((v.rotationX || 0) - (viewState.rotationX || 0)) > 1.5);
+    const moved = zChanged || turned || Math.hypot(v.target[0] - viewState.target[0], v.target[1] - viewState.target[1],
+      (v.target[2] || 0) - (viewState.target[2] || 0)) * Math.pow(2, v.zoom) > 40;
+    viewState = v; lastInteract = performance.now(); writeHash(); if (moved) render(); return v;
   },
   onHover,
   getCursor: ({ isHovering, isDragging }) => isDragging ? "grabbing" : isHovering ? "pointer" : "grab"
@@ -1082,11 +1170,21 @@ $("map").addEventListener("click", e => {
   if (!downXY || Math.hypot(e.clientX - downXY[0], e.clientY - downXY[1]) > 5) return;
   const r = $("map").getBoundingClientRect();
   const info = deckgl.pickObject({ x: e.clientX - r.left, y: e.clientY - r.top, radius: 4,
-    layerIds: ["marks", "hl", "firms", "pts"] }) || { layer: null, index: -1 };
+    layerIds: ["marks", "hl" + dim, "firms" + dim, "pts" + dim] }) || { layer: null, index: -1 };
   onClick(info);
 });
+// 3D: slow orbit while the user is idle (motion parallax is what makes a point cloud legible)
+for (const ev of ["pointerdown", "pointermove", "wheel"]) $("map").addEventListener(ev, () => { lastInteract = performance.now(); }, { passive: true });
+let spinT = performance.now();
+(function spin(now) {
+  requestAnimationFrame(spin);
+  const dt = Math.min(0.1, (now - spinT) / 1000); spinT = now;
+  if (dim !== 3 || !rotOn || document.hidden || now - lastInteract < 3500) return;
+  viewState = Object.assign({}, viewState, { rotationOrbit: ((viewState.rotationOrbit || 0) + 4 * dt) % 360, transitionDuration: 0 });   // 4°/s
+  deckgl.setProps({ initialViewState: viewState }); render();
+})(performance.now());
 document.fonts.ready.then(render);
-window.GAIISia = { get deck() { return deckgl; }, search };
+window.GAIISia = { get deck() { return deckgl; }, search, setDim, get dim() { return dim; } };
 load();
 })();
 </script>
