@@ -2,3 +2,8 @@
 Claude outputs/
 GAIISia/local_data
 index_prev.html
+tools/node_modules/
+tools/frames/
+tools/package-lock.json
+tools/*.mp4
+tools/*.gif
